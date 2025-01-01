@@ -4,7 +4,7 @@
 # Pulls time stats per agent selectable by campaign or user group
 # should be most accurate agent stats of all of the reports
 #
-# Copyright (C) 2019  Matt Florell <vicidial@gmail.com>    LICENSE: AGPLv2
+# Copyright (C) 2024  Matt Florell <vicidial@gmail.com>    LICENSE: AGPLv2
 #
 # CHANGES
 # 90522-0723 - First build
@@ -55,6 +55,12 @@
 # 171012-2015 - Fixed javascript/apache errors with graphs
 # 180502-2215 - Added new help display, added CONNECTED column
 # 191013-0846 - Fixes for PHP7
+# 210318-1558 - Added agent screen visibility stats
+# 210324-2010 - Added agent visibility stats to HTML graphs
+# 211115-1513 - Fix for case-mismatch on pause code statuses for multi-campaign selects
+# 220303-1427 - Added allow_web_debug system setting
+# 230526-1740 - Patch for user_group bug, related to Issue #1346
+# 240801-1130 - Code updates for PHP8 compatibility
 #
 
 $startMS = microtime();
@@ -71,6 +77,7 @@ if (file_exists('options.php'))
 $PHP_AUTH_USER=$_SERVER['PHP_AUTH_USER'];
 $PHP_AUTH_PW=$_SERVER['PHP_AUTH_PW'];
 $PHP_SELF=$_SERVER['PHP_SELF'];
+$PHP_SELF = preg_replace('/\.php.*/i','.php',$PHP_SELF);
 if (isset($_GET["query_date"]))				{$query_date=$_GET["query_date"];}
 	elseif (isset($_POST["query_date"]))	{$query_date=$_POST["query_date"];}
 if (isset($_GET["end_date"]))				{$end_date=$_GET["end_date"];}
@@ -100,12 +107,79 @@ if (isset($_GET["time_in_sec"]))			{$time_in_sec=$_GET["time_in_sec"];}
 if (isset($_GET["search_archived_data"]))			{$search_archived_data=$_GET["search_archived_data"];}
 	elseif (isset($_POST["search_archived_data"]))	{$search_archived_data=$_POST["search_archived_data"];}
 
+$DB=preg_replace("/[^0-9a-zA-Z]/","",$DB);
+
+$MT[0]='';
+$NOW_DATE = date("Y-m-d");
+$NOW_TIME = date("Y-m-d H:i:s");
+$STARTtime = date("U");
+if (!is_array($group)) {$group = array();}
+if (!is_array($user_group)) {$user_group = array();}
+if (!isset($query_date)) {$query_date = $NOW_DATE;}
+if (!isset($end_date)) {$end_date = $NOW_DATE;}
 if (strlen($shift)<2) {$shift='ALL';}
 if (strlen($stage)<2) {$stage='NAME';}
+
+$report_name = 'Agent Time Detail';
+$db_source = 'M';
+$JS_text="<script language='Javascript'>\n";
+$JS_onload="onload = function() {\n";
+
+#############################################
+##### START SYSTEM_SETTINGS LOOKUP #####
+$stmt = "SELECT use_non_latin,outbound_autodial_active,slave_db_server,reports_use_slave_db,enable_languages,language_method,report_default_format,allow_web_debug FROM system_settings;";
+$rslt=mysql_to_mysqli($stmt, $link);
+#if ($DB) {echo "|$stmt\n";}
+$qm_conf_ct = mysqli_num_rows($rslt);
+if ($qm_conf_ct > 0)
+	{
+	$row=mysqli_fetch_row($rslt);
+	$non_latin =					$row[0];
+	$outbound_autodial_active =		$row[1];
+	$slave_db_server =				$row[2];
+	$reports_use_slave_db =			$row[3];
+	$SSenable_languages =			$row[4];
+	$SSlanguage_method =			$row[5];
+	$SSreport_default_format =		$row[6];
+	$SSallow_web_debug =			$row[7];
+	}
+if ($SSallow_web_debug < 1) {$DB=0;}
+if (strlen($report_display_type)<2) {$report_display_type = $SSreport_default_format;}
+##### END SETTINGS LOOKUP #####
+###########################################
+
+$query_date = preg_replace('/[^- \:\_0-9a-zA-Z]/', '', $query_date);
+$end_date = preg_replace('/[^- \:\_0-9a-zA-Z]/', '', $end_date);
+$SUBMIT = preg_replace('/[^-_0-9a-zA-Z]/', '', $SUBMIT);
+$submit = preg_replace('/[^-_0-9a-zA-Z]/', '', $submit);
+$file_download = preg_replace('/[^-_0-9a-zA-Z]/', '', $file_download);
+$search_archived_data = preg_replace('/[^-_0-9a-zA-Z]/', '', $search_archived_data);
+$report_display_type = preg_replace('/[^-_0-9a-zA-Z]/', '', $report_display_type);
+$stage = preg_replace('/[^-_0-9a-zA-Z]/', '', $stage);
+$show_parks = preg_replace('/[^-_0-9a-zA-Z]/', '', $show_parks);
+$time_in_sec = preg_replace('/[^-_0-9a-zA-Z]/', '', $time_in_sec);
+
+# Variables filtered further down in the code
+# $group
+# $user_group
+
+if ($non_latin < 1)
+	{
+	$PHP_AUTH_USER = preg_replace('/[^-_0-9a-zA-Z]/', '', $PHP_AUTH_USER);
+	$PHP_AUTH_PW = preg_replace('/[^-_0-9a-zA-Z]/', '', $PHP_AUTH_PW);
+	$shift = preg_replace('/[^-_0-9a-zA-Z]/', '', $shift);
+	}
+else
+	{
+	$PHP_AUTH_USER = preg_replace('/[^-_0-9\p{L}]/u', '', $PHP_AUTH_USER);
+	$PHP_AUTH_PW = preg_replace('/[^-_0-9\p{L}]/u', '', $PHP_AUTH_PW);
+	$shift = preg_replace('/[^-_0-9\p{L}]/u', '', $shift);
+	}
 
 if ($search_archived_data=="checked") 
 	{
 	$agent_log_table="vicidial_agent_log_archive";
+	$vicidial_agent_visibility_log_table="vicidial_agent_visibility_log_archive";
 	$table_check_stmt="show tables like 'vicidial_timeclock_log_archive'";
 	$table_check_rslt=mysql_to_mysqli($table_check_stmt, $link);
 	if (mysqli_num_rows($table_check_rslt)>0) 
@@ -120,13 +194,9 @@ if ($search_archived_data=="checked")
 else 
 	{
 	$agent_log_table="vicidial_agent_log";
+	$vicidial_agent_visibility_log_table="vicidial_agent_visibility_log";
 	$timeclock_log_table="vicidial_timeclock_log";
 	}
-
-$report_name = 'Agent Time Detail';
-$db_source = 'M';
-$JS_text="<script language='Javascript'>\n";
-$JS_onload="onload = function() {\n";
 
 $user_case = '';
 $TIME_agenttimedetail = '';
@@ -151,39 +221,6 @@ if ($time_in_sec)
 	$TIME_agenttimedetail = 'S';
 	}
 
-#############################################
-##### START SYSTEM_SETTINGS LOOKUP #####
-$stmt = "SELECT use_non_latin,outbound_autodial_active,slave_db_server,reports_use_slave_db,enable_languages,language_method,report_default_format FROM system_settings;";
-$rslt=mysql_to_mysqli($stmt, $link);
-if ($DB) {echo "|$stmt\n";}
-$qm_conf_ct = mysqli_num_rows($rslt);
-if ($qm_conf_ct > 0)
-	{
-	$row=mysqli_fetch_row($rslt);
-	$non_latin =					$row[0];
-	$outbound_autodial_active =		$row[1];
-	$slave_db_server =				$row[2];
-	$reports_use_slave_db =			$row[3];
-	$SSenable_languages =			$row[4];
-	$SSlanguage_method =			$row[5];
-	$SSreport_default_format =		$row[6];
-	}
-##### END SETTINGS LOOKUP #####
-###########################################
-if (strlen($report_display_type)<2) {$report_display_type = $SSreport_default_format;}
-
-if ($non_latin < 1)
-	{
-	$PHP_AUTH_USER = preg_replace('/[^-_0-9a-zA-Z]/', '', $PHP_AUTH_USER);
-	$PHP_AUTH_PW = preg_replace('/[^-_0-9a-zA-Z]/', '', $PHP_AUTH_PW);
-	}
-else
-	{
-	$PHP_AUTH_PW = preg_replace("/'|\"|\\\\|;/","",$PHP_AUTH_PW);
-	$PHP_AUTH_USER = preg_replace("/'|\"|\\\\|;/","",$PHP_AUTH_USER);
-	}
-
-
 $stmt="SELECT selected_language from vicidial_users where user='$PHP_AUTH_USER';";
 if ($DB) {echo "|$stmt|\n";}
 $rslt=mysql_to_mysqli($stmt, $link);
@@ -198,8 +235,16 @@ $auth=0;
 $reports_auth=0;
 $admin_auth=0;
 $auth_message = user_authorization($PHP_AUTH_USER,$PHP_AUTH_PW,'REPORTS',1,0);
-if ($auth_message == 'GOOD')
-	{$auth=1;}
+if ( ($auth_message == 'GOOD') or ($auth_message == '2FA') )
+	{
+	$auth=1;
+	if ($auth_message == '2FA')
+		{
+		header ("Content-type: text/html; charset=utf-8");
+		echo _QXZ("Your session is expired").". <a href=\"admin.php\">"._QXZ("Click here to log in")."</a>.\n";
+		exit;
+		}
+	}
 
 if ($auth > 0)
 	{
@@ -259,9 +304,9 @@ $LOGserver_name = getenv("SERVER_NAME");
 $LOGserver_port = getenv("SERVER_PORT");
 $LOGrequest_uri = getenv("REQUEST_URI");
 $LOGhttp_referer = getenv("HTTP_REFERER");
-$LOGbrowser=preg_replace("/\'|\"|\\\\/","",$LOGbrowser);
-$LOGrequest_uri=preg_replace("/\'|\"|\\\\/","",$LOGrequest_uri);
-$LOGhttp_referer=preg_replace("/\'|\"|\\\\/","",$LOGhttp_referer);
+$LOGbrowser=preg_replace("/<|>|\'|\"|\\\\/","",$LOGbrowser);
+$LOGrequest_uri=preg_replace("/<|>|\'|\"|\\\\/","",$LOGrequest_uri);
+$LOGhttp_referer=preg_replace("/<|>|\'|\"|\\\\/","",$LOGhttp_referer);
 if (preg_match("/443/i",$LOGserver_port)) {$HTTPprotocol = 'https://';}
   else {$HTTPprotocol = 'http://';}
 if (($LOGserver_port == '80') or ($LOGserver_port == '443') ) {$LOGserver_port='';}
@@ -291,7 +336,7 @@ else
 	$webserver_id = mysqli_insert_id($link);
 	}
 
-$stmt="INSERT INTO vicidial_report_log set event_date=NOW(), user='$PHP_AUTH_USER', ip_address='$LOGip', report_name='$report_name', browser='$LOGbrowser', referer='$LOGhttp_referer', notes='$LOGserver_name:$LOGserver_port $LOGscript_name |$group[0], $query_date, $end_date, $shift, $file_download, $report_display_type|', url='$LOGfull_url', webserver='$webserver_id';";
+$stmt="INSERT INTO vicidial_report_log set event_date=NOW(), user='$PHP_AUTH_USER', ip_address='$LOGip', report_name='$report_name', browser='$LOGbrowser', referer='$LOGhttp_referer', notes='$LOGserver_name:$LOGserver_port $LOGscript_name |$query_date, $end_date, $shift, $file_download, $report_display_type|', url='$LOGfull_url', webserver='$webserver_id';";
 if ($DB) {echo "|$stmt|\n";}
 $rslt=mysql_to_mysqli($stmt, $link);
 $report_log_id = mysqli_insert_id($link);
@@ -360,22 +405,13 @@ if ( (!preg_match('/\-\-ALL\-\-/i', $LOGadmin_viewable_call_times)) and (strlen(
 	$whereLOGadmin_viewable_call_timesSQL = "where call_time_id IN('---ALL---','$rawLOGadmin_viewable_call_timesSQL')";
 	}
 
-$MT[0]='';
-$NOW_DATE = date("Y-m-d");
-$NOW_TIME = date("Y-m-d H:i:s");
-$STARTtime = date("U");
-if (!isset($group)) {$group = array();}
-if (!isset($user_group)) {$user_group = array();}
-if (!isset($query_date)) {$query_date = $NOW_DATE;}
-if (!isset($end_date)) {$end_date = $NOW_DATE;}
-
-
 
 $i=0;
 $group_string='|';
 $group_ct = count($group);
 while($i < $group_ct)
 	{
+	$group[$i] = preg_replace('/[^-_0-9\p{L}]/u', '', $group[$i]);
 	$group_string .= "$group[$i]|";
 	$i++;
 	}
@@ -399,6 +435,7 @@ $group_string='|';
 $group_ct = count($group);
 while($i < $group_ct)
 	{
+	$group[$i] = preg_replace('/[^-_0-9\p{L}]/u', '', $group[$i]);
 	if ( (preg_match("/ $group[$i] /",$regexLOGallowed_campaigns)) or (preg_match("/-ALL/",$LOGallowed_campaigns)) )
 		{
 		$group_string .= "$group[$i]|";
@@ -439,13 +476,18 @@ $user_group_string='|';
 $user_group_ct = count($user_group);
 while($i < $user_group_ct)
 	{
+	$user_group[$i] = preg_replace('/[^-_0-9\p{L}]/u', '', $user_group[$i]);
 	$user_group_string .= "$user_group[$i]|";
 	$user_group_SQL .= "'$user_group[$i]',";
 	$user_groupQS .= "&user_group[]=$user_group[$i]";
 	$i++;
 	}
 if ( (preg_match('/\-\-ALL\-\-/',$user_group_string) ) or ($user_group_ct < 1) )
-	{$user_group_SQL = "";}
+	{
+	# $user_group_SQL = "";
+	$user_group_SQL = " $LOGadmin_viewable_groupsSQL";
+	$TCuser_group_SQL = " $LOGadmin_viewable_groupsSQL";
+	}
 else
 	{
 	$user_group_SQL = preg_replace('/,$/i', '',$user_group_SQL);
@@ -586,7 +628,8 @@ else
 	############################################################################
 
 	### BEGIN gather user IDs and names for matching up later
-	$stmt="select full_name,$userSQL from vicidial_users $whereLOGadmin_viewable_groupsSQL order by user limit 100000;";
+	# user_group IN('---ALL---','$rawLOGadmin_viewable_groupsSQL')
+	$stmt="select full_name,$userSQL,if(user_group IN('---ALL---','$rawLOGadmin_viewable_groupsSQL'), 1, 0) from vicidial_users $whereLOGadmin_viewable_groupsSQL order by user limit 100000;";
 	$rslt=mysql_to_mysqli($stmt, $link);
 	if ($DB) {echo "|$stmt\n";}
 	$users_to_print = mysqli_num_rows($rslt);
@@ -601,6 +644,8 @@ else
 	$max_pause=1;
 	$max_dead=1;
 	$max_customer=1;
+	$TOT_HIDDEN=0;
+	$TOT_VISIBLE=0;
 
 	while ($i < $users_to_print)
 		{
@@ -663,7 +708,8 @@ else
 	$ss_stmt="select distinct sub_status from ".$agent_log_table." where event_time <= '$query_date_END' and event_time >= '$query_date_BEGIN' and pause_sec > 0 and pause_sec < 65000 $group_SQL $user_group_SQL order by sub_status asc limit 10000000;";
 	$ss_rslt=mysql_to_mysqli($ss_stmt, $link);
 	$j=0;
-	while($ss_row=mysqli_fetch_row($ss_rslt)) {
+	while($ss_row=mysqli_fetch_row($ss_rslt)) 
+		{
 		$current_ss=$ss_row[0];
 
 		$stmt="select $userSQL,sum(pause_sec),sub_status from ".$agent_log_table." where event_time <= '$query_date_END' and event_time >= '$query_date_BEGIN' and pause_sec > 0 and pause_sec < 65000 and sub_status='$current_ss' $group_SQL $user_group_SQL group by user,sub_status order by user,sub_status desc limit 10000000;";
@@ -702,7 +748,7 @@ else
 			$i++;
 			$j++;
 			}
-	}
+		}
 	### END gather pause code information by user IDs
 
 
@@ -800,13 +846,13 @@ else
 	if ($file_download < 1)
 		{
 		$ASCII_text.=_QXZ("AGENT TIME BREAKDOWN").":\n";
-		$ASCII_text.="+---------------------------+----------+----------+------------+------------$park_HEADER_DIV+------------+------------+------------+------------+------------+------------+------------+------------+------------+------------+------------+------------+   +$sub_statusesHEAD\n";
-		$ASCII_text.="| <a href=\"$LINKbase&stage=NAME\">"._QXZ("USER NAME",25)."</a> | <a href=\"$LINKbase&stage=ID\">"._QXZ("ID",8)."</a> | <a href=\"$LINKbase&stage=LEADS\">"._QXZ("CALLS",8)."</a> | <a href=\"$LINKbase&stage=TCLOCK\">"._QXZ("TIME CLOCK",10)."</a> | <a href=\"$LINKbase&stage=TIME\">"._QXZ("LOGIN TIME",10)."</a> |$park_HEADER "._QXZ("WAIT",10)." | "._QXZ("WAIT",8)." % | "._QXZ("TALK",10)." | "._QXZ("TALK TIME",9)." %| "._QXZ("DISPO",10)." | "._QXZ("DISPOTIME",9)." %| "._QXZ("PAUSE",10)." | "._QXZ("PAUSETIME",9)." %| "._QXZ("DEAD",10)." | "._QXZ("DEAD TIME",9)." %| "._QXZ("CUSTOMER",10)." | "._QXZ("CONNECTED",10)." |   |$sub_statusesHTML\n";
-		$ASCII_text.="+---------------------------+----------+----------+------------+------------$park_HEADER_DIV+------------+------------+------------+------------+------------+------------+------------+------------+------------+------------+------------+------------+   +$sub_statusesHEAD\n";
+		$ASCII_text.="+---------------------------+----------+----------+------------+------------$park_HEADER_DIV+------------+------------+------------+------------+------------+------------+------------+------------+------------+------------+------------+------------+   +$sub_statusesHEAD   +-------------+-------------+\n";
+		$ASCII_text.="| <a href=\"$LINKbase&stage=NAME\">"._QXZ("USER NAME",25)."</a> | <a href=\"$LINKbase&stage=ID\">"._QXZ("ID",8)."</a> | <a href=\"$LINKbase&stage=LEADS\">"._QXZ("CALLS",8)."</a> | <a href=\"$LINKbase&stage=TCLOCK\">"._QXZ("TIME CLOCK",10)."</a> | <a href=\"$LINKbase&stage=TIME\">"._QXZ("LOGIN TIME",10)."</a> |$park_HEADER "._QXZ("WAIT",10)." | "._QXZ("WAIT",8)." % | "._QXZ("TALK",10)." | "._QXZ("TALK TIME",9)." %| "._QXZ("DISPO",10)." | "._QXZ("DISPOTIME",9)." %| "._QXZ("PAUSE",10)." | "._QXZ("PAUSETIME",9)." %| "._QXZ("DEAD",10)." | "._QXZ("DEAD TIME",9)." %| "._QXZ("CUSTOMER",10)." | "._QXZ("CONNECTED",10)." |   |$sub_statusesHTML   | "._QXZ("VISIBLE",11)." | "._QXZ("HIDDEN",11)." |\n";
+		$ASCII_text.="+---------------------------+----------+----------+------------+------------$park_HEADER_DIV+------------+------------+------------+------------+------------+------------+------------+------------+------------+------------+------------+------------+   +$sub_statusesHEAD   +-------------+-------------+\n";
 		}
 	else
 		{
-		$file_output .= _QXZ("USER").","._QXZ("ID").","._QXZ("CALLS").","._QXZ("TIME CLOCK").","._QXZ("LOGIN TIME")."$park_HEADER_CSV,"._QXZ("WAIT").","._QXZ("WAIT %").","._QXZ("TALK").","._QXZ("TALK TIME %").","._QXZ("DISPO").","._QXZ("DISPOTIME %").","._QXZ("PAUSE").","._QXZ("PAUSETIME %").","._QXZ("DEAD").","._QXZ("DEAD TIME %").","._QXZ("CUSTOMER").","._QXZ("CONNECTED")."$sub_statusesFILE\n";
+		$file_output .= _QXZ("USER").","._QXZ("ID").","._QXZ("CALLS").","._QXZ("TIME CLOCK").","._QXZ("LOGIN TIME")."$park_HEADER_CSV,"._QXZ("WAIT").","._QXZ("WAIT %").","._QXZ("TALK").","._QXZ("TALK TIME %").","._QXZ("DISPO").","._QXZ("DISPOTIME %").","._QXZ("PAUSE").","._QXZ("PAUSETIME %").","._QXZ("DEAD").","._QXZ("DEAD TIME %").","._QXZ("CUSTOMER").","._QXZ("CONNECTED")."$sub_statusesFILE,"._QXZ("VISIBLE").","._QXZ("HIDDEN")."\n";
 		}
 	##### END print the output to screen or put into file output variable
 
@@ -960,6 +1006,28 @@ else
 				}
 			}
 
+		### Gather agent screen visibility data from during the time period
+		$HIDDEN_sec=0;   $VISIBLE_sec=0;
+		$stmt="select count(*),sum(length_in_sec),visibility from ".$vicidial_agent_visibility_log_table." where user='$Suser[$m]' and db_time >= '$query_date_BEGIN' and db_time <= '$query_date_END' and visibility IN('HIDDEN','VISIBLE') group by visibility;";
+		$rslt=mysql_to_mysqli($stmt, $link);
+		if ($DB) {echo "$stmt\n";}
+		$visibility_results = mysqli_num_rows($rslt);
+		$v_ct=0;
+		while ($visibility_results > $v_ct)
+			{
+			$row=mysqli_fetch_row($rslt);
+			if ($row[2] == 'HIDDEN') {$HIDDEN_sec = $row[1];}
+			if ($row[2] == 'VISIBLE') {$VISIBLE_sec = $row[1];}
+			$v_ct++;
+			}
+		$TOT_HIDDEN =	($TOT_HIDDEN + $HIDDEN_sec);
+		$TOT_VISIBLE =	($TOT_VISIBLE + $VISIBLE_sec);
+		$USER_HIDDEN_sec =		sec_convert($HIDDEN_sec,$TIME_agenttimedetail);
+		$pfUSER_HIDDEN_sec =	sprintf("%11s", $USER_HIDDEN_sec);
+		$USER_VISIBLE_sec =		sec_convert($VISIBLE_sec,$TIME_agenttimedetail);
+		$pfUSER_VISIBLE_sec =	sprintf("%11s", $USER_VISIBLE_sec);
+
+
 		### BEGIN loop through each status ###
 		$n=0;
 		$sub_status_array=array();
@@ -975,7 +1043,7 @@ else
 			$i=0; $status_found=0;
 			while ( ($i < $subs_to_print) and ($status_found < 1) )
 				{
-				if ( ($Suser[$m]=="$PCuser[$i]") and ($Sstatus=="$sub_status[$i]") )
+				if ( ($Suser[$m]=="$PCuser[$i]") and (preg_match("/^$sub_status[$i]$/i",$Sstatus)) )
 					{
 					$USERcodePAUSE_MS =		sec_convert($PCpause_sec[$i],$TIME_agenttimedetail);
 					if (strlen($USERcodePAUSE_MS)<1) {$USERcodePAUSE_MS='0';}
@@ -984,7 +1052,7 @@ else
 					if ($PCpause_sec[$i]>$$max_varname) {$$max_varname=$PCpause_sec[$i];}
 					$graph_stats_sub[$m][$n]=$PCpause_sec[$i];					
 
-					$n1=($n+19); # THIS IS FOR THE GRAPHING FURTHER DOWN; COULDN'T THINK OF A BETTER WAY TO DO THIS.
+					$n1=($n+21); # THIS IS FOR THE GRAPHING FURTHER DOWN; COULDN'T THINK OF A BETTER WAY TO DO THIS.
 					$graph_stats[$m][$n1]=$PCpause_sec[$i];					
 
 					$SstatusTXT = sprintf("%10s", $pfUSERcodePAUSE_MS);
@@ -1066,9 +1134,11 @@ else
 		$graph_stats[$m][17]=trim($park_array[$Suser[$m]][1]+0);
 		$graph_stats[$m][18]=trim(round(MathZDC(($park_array[$Suser[$m]][1]+0), $user_holds)));
 		$graph_stats[$m][19]=trim($user_hpc);
+		$graph_stats[$m][20]=trim($VISIBLE_sec);
+		$graph_stats[$m][21]=trim($HIDDEN_sec);
 
-
-		if ($file_download<1) {
+		if ($file_download<1) 
+			{
 			if ($non_latin < 1)
 				{
 				$Sname[$m]=	sprintf("%-25s", $Sname[$m]); 
@@ -1083,17 +1153,17 @@ else
 				$Suser[$m] =	sprintf("%-24s", $Suser[$m]);
 				while(mb_strlen($Suser[$m],'utf-8')>8) {$Suser[$m] = mb_substr("$Suser[$m]", 0, -1,'utf-8');}
 				}
-		}
+			}
 
 		if ($file_download < 1)
 			{
 			if ($atdr_login_logout_user_link > 0)
 				{
-				$Toutput = "| $Sname[$m] | <a href=\"./user_stats.php?pause_code_rpt=1&begin_date=$query_date&end_date=$end_date&user=$RAWuser\">$Suser[$m]</a> | $Scalls[$m] | $StimeTC[$m]$TCuserAUTOLOGOUT| $Stime[$m] |$park_AGENT_INFO $Swait[$m] | $Swaitpct[$m] | $Stalk[$m] | $Stalkpct[$m] | $Sdispo[$m] | $Sdispopct[$m] | $Spause[$m] | $Spausepct[$m] | $Sdead[$m] | $Sdeadpct[$m] | $Scustomer[$m] | $Sconnected[$m] |   |$SstatusesHTML\n";
+				$Toutput = "| $Sname[$m] | <a href=\"./user_stats.php?pause_code_rpt=1&begin_date=$query_date&end_date=$end_date&user=$RAWuser\">$Suser[$m]</a> | $Scalls[$m] | $StimeTC[$m]$TCuserAUTOLOGOUT| $Stime[$m] |$park_AGENT_INFO $Swait[$m] | $Swaitpct[$m] | $Stalk[$m] | $Stalkpct[$m] | $Sdispo[$m] | $Sdispopct[$m] | $Spause[$m] | $Spausepct[$m] | $Sdead[$m] | $Sdeadpct[$m] | $Scustomer[$m] | $Sconnected[$m] |   |$SstatusesHTML   | $pfUSER_VISIBLE_sec | $pfUSER_HIDDEN_sec |\n";
 				}
 			else
 				{
-				$Toutput = "| $Sname[$m] | <a href=\"./user_stats.php?user=$RAWuser&begin_date=$query_date&end_date\">$Suser[$m]</a> | $Scalls[$m] | $StimeTC[$m]$TCuserAUTOLOGOUT| $Stime[$m] |$park_AGENT_INFO $Swait[$m] | $Swaitpct[$m] | $Stalk[$m] | $Stalkpct[$m] | $Sdispo[$m] | $Sdispopct[$m] | $Spause[$m] | $Spausepct[$m] | $Sdead[$m] | $Sdeadpct[$m] | $Scustomer[$m] | $Sconnected[$m] |   |$SstatusesHTML\n";
+				$Toutput = "| $Sname[$m] | <a href=\"./user_stats.php?user=$RAWuser&begin_date=$query_date&end_date\">$Suser[$m]</a> | $Scalls[$m] | $StimeTC[$m]$TCuserAUTOLOGOUT| $Stime[$m] |$park_AGENT_INFO $Swait[$m] | $Swaitpct[$m] | $Stalk[$m] | $Stalkpct[$m] | $Sdispo[$m] | $Sdispopct[$m] | $Spause[$m] | $Spausepct[$m] | $Sdead[$m] | $Sdeadpct[$m] | $Scustomer[$m] | $Sconnected[$m] |   |$SstatusesHTML   | $pfUSER_VISIBLE_sec | $pfUSER_HIDDEN_sec |\n";
 				}
 				
 			$graph_stats[$m][0]=trim("$Suser[$m] - $Sname[$m]");
@@ -1119,7 +1189,7 @@ else
 			$avg_hold_time=trim($avg_hold_time); 
 			$user_hpc=trim($user_hpc); 
 
-			$fileToutput = "$RAWname,$RAWuser,$RAWcalls,$RAWtimeTC,$RAWtime,$park_AGENT_INFO_CSV$RAWwait,$RAWwaitpct %,$RAWtalk,$RAWtalkpct %,$RAWdispo,$RAWdispopct %,$RAWpause,$RAWpausepct %,$RAWdead,$RAWdeadpct %,$RAWcustomer,$RAWconnected$SstatusesFILE\n";
+			$fileToutput = "$RAWname,$RAWuser,$RAWcalls,$RAWtimeTC,$RAWtime,$park_AGENT_INFO_CSV$RAWwait,$RAWwaitpct %,$RAWtalk,$RAWtalkpct %,$RAWdispo,$RAWdispopct %,$RAWpause,$RAWpausepct %,$RAWdead,$RAWdeadpct %,$RAWcustomer,$RAWconnected$SstatusesFILE,$USER_VISIBLE_sec,$USER_HIDDEN_sec\n";
 			}
 
 		$TOPsorted_output[$m] = $Toutput;
@@ -1220,7 +1290,7 @@ else
 		$i=0; $status_found=0;
 		while ($i < $subs_to_print)
 			{
-			if ($Sstatus=="$sub_status[$i]")
+			if (preg_match("/^$sub_status[$i]$/i",$Sstatus))
 				{
 				$Scalls =		($Scalls + $PCpause_sec[$i]);
 				$status_found++;
@@ -1295,15 +1365,20 @@ else
 	$hTOTconnected =	sprintf("%11s", $TOTconnected);
 	$hTOTALtime = sprintf("%11s", $TOTALtime);
 	$hTOTtimeTC = sprintf("%11s", $TOTtimeTC);
+	$TOT_HIDDEN_HTML =		sec_convert($TOT_HIDDEN,$TIME_agenttimedetail);
+	$pfTOT_HIDDEN_sec =		sprintf("%11s", $TOT_HIDDEN_HTML);
+	$TOT_VISIBLE_HTML =		sec_convert($TOT_VISIBLE,$TIME_agenttimedetail);
+	$pfTOT_VISIBLE_sec =	sprintf("%11s", $TOT_VISIBLE_HTML);
+
 	###### END LAST LINE TOTALS FORMATTING ##########
 
 
  
 	if ($file_download < 1)
 		{
-		$ASCII_text.="+---------------------------+----------+----------+------------+------------$park_HEADER_DIV+------------+------------+------------+------------+------------+------------+------------+------------+------------+------------+------------+------------+   +$sub_statusesHEAD\n";
-		$ASCII_text.="| "._QXZ("TOTALS",10)." "._QXZ("AGENTS",9,"r").":$hTOT_AGENTS           | $hTOTcalls |$hTOTtimeTC |$hTOTALtime |$park_TOTALS$hTOTwait |$hTOTwaitpct |$hTOTtalk |$hTOTtalkpct |$hTOTdispo |$hTOTdispopct |$hTOTpause |$hTOTpausepct |$hTOTdead |$hTOTdeadpct |$hTOTcustomer |$hTOTconnected |   |$SUMstatusesHTML\n";
-		$ASCII_text.="+--------------------------------------+----------+------------+------------$park_HEADER_DIV+------------+------------+------------+------------+------------+------------+------------+------------+------------+------------+------------+------------+   +$sub_statusesHEAD\n";
+		$ASCII_text.="+---------------------------+----------+----------+------------+------------$park_HEADER_DIV+------------+------------+------------+------------+------------+------------+------------+------------+------------+------------+------------+------------+   +$sub_statusesHEAD   +-------------+-------------+\n";
+		$ASCII_text.="| "._QXZ("TOTALS",10)." "._QXZ("AGENTS",9,"r").":$hTOT_AGENTS           | $hTOTcalls |$hTOTtimeTC |$hTOTALtime |$park_TOTALS$hTOTwait |$hTOTwaitpct |$hTOTtalk |$hTOTtalkpct |$hTOTdispo |$hTOTdispopct |$hTOTpause |$hTOTpausepct |$hTOTdead |$hTOTdeadpct |$hTOTcustomer |$hTOTconnected |   |$SUMstatusesHTML   | $pfTOT_VISIBLE_sec | $pfTOT_HIDDEN_sec |\n";
+		$ASCII_text.="+--------------------------------------+----------+------------+------------$park_HEADER_DIV+------------+------------+------------+------------+------------+------------+------------+------------+------------+------------+------------+------------+   +$sub_statusesHEAD   +-------------+-------------+\n";
 		if ($AUTOLOGOUTflag > 0)
 			{
 			$ASCII_text.= "     * "._QXZ("denotes AUTOLOGOUT from timeclock")."\n";
@@ -1323,24 +1398,27 @@ else
 		$multigraph_text="";
 		$graph_id++;
 		$graph_array=array("ATD_CALLSdata|1|CALLS|integer|", "ATD_TIMECLOCKdata|2|TIME CLOCK|time|", "ATD_LOGINTIMEdata|3|LOGIN TIME|time|");
-		if ($show_parks) {
+		if ($show_parks) 
+			{
 			array_push($graph_array, "ATD_PARKSdata|16|PARKS|integer|", "ATD_PARKTIMEdata|17|PARKTIME|time|", "ATD_AVGPARKdata|18|AVGPARK|time|", "ATD_PARKSCALLdata|19|PARKS/CALL|decimal|");
-		}
-		array_push($graph_array, "ATD_WAITdata|4|WAIT|time|", "ATD_WAITPCTdata|15|WAIT %|percent|", "ATD_TALKdata|5|TALK|time|", "ATD_TALKTIMEPCTdata|11|TALKTIME%|percent|", "ATD_DISPOdata|6|DISPO|time|", "ATD_DISPOTIMEPCTdata|12|DISPOTIME%|percent|", "ATD_PAUSEdata|7|PAUSE|time|", "ATD_PAUSETIMEPCTdata|13|PAUSETIME%|percent|", "ATD_DEADdata|8|DEAD|time|", "ATD_DEADTIMEPCTdata|14|DEADTIME%|percent|", "ATD_CUSTOMERdata|9|CUSTOMER|time|", "ATD_CONNECTEDdata|10|CONNECTED|time|");
+			}
+		array_push($graph_array, "ATD_WAITdata|4|WAIT|time|", "ATD_WAITPCTdata|15|WAIT %|percent|", "ATD_TALKdata|5|TALK|time|", "ATD_TALKTIMEPCTdata|11|TALKTIME%|percent|", "ATD_DISPOdata|6|DISPO|time|", "ATD_DISPOTIMEPCTdata|12|DISPOTIME%|percent|", "ATD_PAUSEdata|7|PAUSE|time|", "ATD_PAUSETIMEPCTdata|13|PAUSETIME%|percent|", "ATD_DEADdata|8|DEAD|time|", "ATD_DEADTIMEPCTdata|14|DEADTIME%|percent|", "ATD_CUSTOMERdata|9|CUSTOMER|time|", "ATD_CONNECTEDdata|10|CONNECTED|time|", "ATD_USERVISIBLEdata|20|VISIBLE|time|", "ATD_USERHIDDENdata|21|HIDDEN|time|");
 
-		for ($e=0; $e<count($sub_statusesARY); $e++) {
+		for ($e=0; $e<count($sub_statusesARY); $e++) 
+			{
 			$Sstatus=$sub_statusesARY[$e];
 			$SstatusTXT=$Sstatus;
 			if ($Sstatus=="") {$SstatusTXT="(blank)";}
-			array_push($graph_array, "ATD_SUBSTATUS".$e."data|".($e+19)."|".$SstatusTXT."|time|");
-		}
+			array_push($graph_array, "ATD_SUBSTATUS".$e."data|".($e+21)."|".$SstatusTXT."|time|");
+			}
 
 		$default_graph="bar"; # Graph that is initally displayed when page loads
 		include("graph_color_schemas.inc"); 
 
 		$graph_totals_array=array();
 		$graph_totals_rawdata=array();
-		for ($q=0; $q<count($graph_array); $q++) {
+		for ($q=0; $q<count($graph_array); $q++) 
+			{
 			$graph_info=explode("|", $graph_array[$q]); 
 			$current_graph_total=0;
 			$dataset_name=$graph_info[0];
@@ -1360,7 +1438,8 @@ else
 			$graphConstantsA="\t\t\t\tbackgroundColor: [";
 			$graphConstantsB="\t\t\t\thoverBackgroundColor: [";
 			$graphConstantsC="\t\t\t\thoverBorderColor: [";
-			for ($d=0; $d<count($graph_stats); $d++) {
+			for ($d=0; $d<count($graph_stats); $d++) 
+				{
 				$labels.="\"".preg_replace('/ +/', ' ', $graph_stats[$d][0])."\",";
 				$data.="\"".$graph_stats[$d][$dataset_index]."\","; 
 				$current_graph_total+=$graph_stats[$d][$dataset_index];
@@ -1370,7 +1449,7 @@ else
 				$graphConstantsA.="\"$bgcolor\",";
 				$graphConstantsB.="\"$hbgcolor\",";
 				$graphConstantsC.="\"$hbcolor\",";
-			}	
+				}
 			$graphConstantsA.="],\n";
 			$graphConstantsB.="],\n";
 			$graphConstantsC.="],\n";
@@ -1378,7 +1457,8 @@ else
 			$data=preg_replace('/,$/', '', $data)."],\n";
 			
 			$graph_totals_rawdata[$q]=$current_graph_total;
-			switch($dataset_type) {
+			switch($dataset_type) 
+				{
 				case "time":
 					$graph_totals_array[$q]="  <caption align=\"bottom\">"._QXZ("TOTAL")." - ".sec_convert($current_graph_total, 'H')." </caption>\n";
 					$chart_options="options: {tooltips: {callbacks: {label: function(tooltipItem, data) {var value = Math.round(data.datasets[0].data[tooltipItem.index]); return value.toHHMMSS();}}}, legend: { display: false }},";
@@ -1391,7 +1471,7 @@ else
 					$graph_totals_array[$q]="  <caption align=\"bottom\">"._QXZ("TOTAL").": $current_graph_total</caption>\n";
 					$chart_options="options: { legend: { display: false }},";
 					break;
-			}
+				}
 
 			$datasets.=$data;
 			$datasets.=$graphConstantsA.$graphConstantsB.$graphConstantsC.$graphConstants; # SEE TOP OF SCRIPT
@@ -1404,7 +1484,7 @@ else
 			# $JS_text.="prepChart('$default_graph', $graph_id, $q, $dataset_name);\n";
 			$JS_text.="var main_ctx = document.getElementById(\"CanvasID".$graph_id."_".$q."\");\n";
 			$JS_text.="var GraphID".$graph_id."_".$q." = new Chart(main_ctx, {type: '$default_graph', $chart_options data: $dataset_name});\n";
-		}
+			}
 
 		$graph_count=count($graph_array);
 		$graph_title=_QXZ("AGENT TIME DETAIL REPORT");
@@ -1412,11 +1492,10 @@ else
 		echo $HTML_graph_head;
 		$GRAPH.=$graphCanvas;
 
-
 		}
 	else
 		{
-		$file_output .= _QXZ("TOTALS").",$TOT_AGENTS,$TOTcalls,$TOTtimeTC,$TOTALtime,$park_TOTALS_CSV$TOTwait,$TOTwaitpct %,$TOTtalk,$TOTtalkpct %,$TOTdispo,$TOTdispopct %,$TOTpause,$TOTpausepct %,$TOTdead,$TOTdeadpct  %,$TOTcustomer,$TOTconnected$SUMstatusesFILE\n";
+		$file_output .= _QXZ("TOTALS").",$TOT_AGENTS,$TOTcalls,$TOTtimeTC,$TOTALtime,$park_TOTALS_CSV$TOTwait,$TOTwaitpct %,$TOTtalk,$TOTtalkpct %,$TOTdispo,$TOTdispopct %,$TOTpause,$TOTpausepct %,$TOTdead,$TOTdeadpct  %,$TOTcustomer,$TOTconnected$SUMstatusesFILE,$TOT_VISIBLE_HTML,$TOT_HIDDEN_HTML\n";
 		}
 	}
 
@@ -1642,6 +1721,7 @@ $stmt="UPDATE vicidial_report_log set run_time='$TOTALrun' where report_log_id='
 if ($DB) {echo "|$stmt|\n";}
 $rslt=mysql_to_mysqli($stmt, $link);
 
+if ($DB > 0) {echo "$TOTALrun\n";}
 ?>
 
 </BODY></HTML>

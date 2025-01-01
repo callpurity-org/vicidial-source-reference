@@ -1,7 +1,7 @@
 <?php
 # api.php
 # 
-# Copyright (C) 2020  Matt Florell <vicidial@gmail.com>    LICENSE: AGPLv2
+# Copyright (C) 2024  Matt Florell <vicidial@gmail.com>    LICENSE: AGPLv2
 #
 # This script is designed as an API(Application Programming Interface) to allow
 # other programs to interact with the VICIDIAL Agent screen
@@ -101,10 +101,26 @@
 # 190901-0952 - Added cid_choice option to transfer_conference function
 # 200403-1510 - Added outbound_cid option to external_dial function
 # 201112-2053 - Added vm_message function
+# 210116-1138 - Addressed session ID issue in ticket #1251
+# 210222-1058 - Added call length logging to ra_call_control function
+# 210320-2335 - Added additional update_fields options: scriptreload,script2reload,formreload,emailreload,chatreload
+# 210616-2057 - Added optional CORS support, see options.php for details
+# 210819-0902 - Updated change_ingroups for changes in vicidial_live_inbound_agents insert/update
+# 220220-0847 - Added allow_web_debug system setting
+# 230412-0945 - Added send_notification function
+# 230413-1957 - Fix for send_notification user group permissions
+# 230519-0731 - Fix for input variable filtering
+# 231129-1457 - Added refresh_panel function
+# 231222-2105 - Added multi_dial_phones option to the transfer_conference function
+# 240219-1500 - Added daily_limit setting to change_ingroups function
+# 240425-1901 - Added md_check option for transfer_conference function
+# 240427-0809 - Added tw_check option for transfer_conference function
+# 240429-2220 - Added PARK_XFER|GRAB_XFER options for park_call function
 #
 
-$version = '2.14-67';
-$build = '201112-2053';
+$version = '2.14-81';
+$build = '240429-2220';
+$php_script = 'api.php';
 
 $startMS = microtime();
 
@@ -251,6 +267,47 @@ if (isset($_GET["cid_choice"]))				{$cid_choice=$_GET["cid_choice"];}
 	elseif (isset($_POST["cid_choice"]))	{$cid_choice=$_POST["cid_choice"];}
 if (isset($_GET["outbound_cid"]))			{$outbound_cid=$_GET["outbound_cid"];}
 	elseif (isset($_POST["outbound_cid"]))	{$outbound_cid=$_POST["outbound_cid"];}
+if (isset($_GET["duration"]))			{$duration=$_GET["duration"];}
+	elseif (isset($_POST["duration"]))	{$duration=$_POST["duration"];}
+if (isset($_GET["recipient"]))				{$recipient=$_GET["recipient"];}
+	elseif (isset($_POST["recipient"]))		{$recipient=$_POST["recipient"];}
+if (isset($_GET["recipient_type"]))				{$recipient_type=$_GET["recipient_type"];}
+	elseif (isset($_POST["recipient_type"]))	{$recipient_type=$_POST["recipient_type"];}
+if (isset($_GET["show_confetti"]))				{$show_confetti=$_GET["show_confetti"];}
+	elseif (isset($_POST["show_confetti"]))		{$show_confetti=$_POST["show_confetti"];}
+if (isset($_GET["maxParticleCount"]))			{$maxParticleCount=$_GET["maxParticleCount"];}
+	elseif (isset($_POST["maxParticleCount"]))	{$maxParticleCount=$_POST["maxParticleCount"];}
+if (isset($_GET["particleSpeed"]))			{$particleSpeed=$_GET["particleSpeed"];}
+	elseif (isset($_POST["particleSpeed"]))	{$particleSpeed=$_POST["particleSpeed"];}
+if (isset($_GET["notification_date"]))				{$notification_date=$_GET["notification_date"];}
+	elseif (isset($_POST["notification_date"]))		{$notification_date=$_POST["notification_date"];}
+if (isset($_GET["notification_text"]))				{$notification_text=$_GET["notification_text"];}
+	elseif (isset($_POST["notification_text"]))		{$notification_text=$_POST["notification_text"];}
+if (isset($_GET["notification_retry"]))				{$notification_retry=$_GET["notification_retry"];}
+	elseif (isset($_POST["notification_retry"]))	{$notification_retry=$_POST["notification_retry"];}
+if (isset($_GET["text_size"]))				{$text_size=$_GET["text_size"];}
+	elseif (isset($_POST["text_size"]))		{$text_size=$_POST["text_size"];}
+if (isset($_GET["text_font"]))				{$text_font=$_GET["text_font"];}
+	elseif (isset($_POST["text_font"]))		{$text_font=$_POST["text_font"];}
+if (isset($_GET["text_weight"]))			{$text_weight=$_GET["text_weight"];}
+	elseif (isset($_POST["text_weight"]))	{$text_weight=$_POST["text_weight"];}
+if (isset($_GET["text_color"]))				{$text_color=$_GET["text_color"];}
+	elseif (isset($_POST["text_color"]))	{$text_color=$_POST["text_color"];}
+if (isset($_GET["multi_dial_phones"]))			{$multi_dial_phones=$_GET["multi_dial_phones"];}
+	elseif (isset($_POST["multi_dial_phones"]))	{$multi_dial_phones=$_POST["multi_dial_phones"];}
+if (isset($_GET["md_check"]))			{$md_check=$_GET["md_check"];}
+	elseif (isset($_POST["md_check"]))	{$md_check=$_POST["md_check"];}
+if (isset($_GET["tw_check"]))			{$tw_check=$_GET["tw_check"];}
+	elseif (isset($_POST["tw_check"]))	{$tw_check=$_POST["tw_check"];}
+
+$DB=preg_replace("/[^0-9a-zA-Z]/","",$DB);
+
+# if options file exists, use the override values for the above variables
+#   see the options-example.php file for more information
+if (file_exists('options.php'))
+	{
+	require('options.php');
+	}
 
 header ("Content-type: text/html; charset=utf-8");
 header ("Cache-Control: no-cache, must-revalidate");  // HTTP/1.1
@@ -261,6 +318,24 @@ $pass = preg_replace("/'|\"|\\\\|;| /","",$pass);
 
 #############################################
 ##### START SYSTEM_SETTINGS AND USER LANGUAGE LOOKUP #####
+$stmt = "SELECT use_non_latin,enable_languages,language_method,agent_debug_logging,outbound_cid_any,allow_web_debug,agent_notifications FROM system_settings;";
+$rslt=mysql_to_mysqli($stmt, $link);
+	if ($mel > 0) {mysql_error_logging($NOW_TIME,$link,$mel,$stmt,'00XXX',$user,$server_ip,$session_name,$one_mysql_log);}
+#if ($DB) {echo "$stmt\n";}
+$qm_conf_ct = mysqli_num_rows($rslt);
+if ($qm_conf_ct > 0)
+	{
+	$row=mysqli_fetch_row($rslt);
+	$non_latin =				$row[0];
+	$SSenable_languages =		$row[1];
+	$SSlanguage_method =		$row[2];
+	$SSagent_debug_logging =	$row[3];
+	$SSoutbound_cid_any =		$row[4];
+	$SSallow_web_debug =		$row[5];
+	$SSagent_notifications =	$row[6];
+	}
+if ($SSallow_web_debug < 1) {$DB=0;}
+
 $VUselected_language = '';
 $stmt="SELECT selected_language,api_list_restrict,api_allowed_functions,user_group from vicidial_users where user='$user';";
 if ($DB) {echo "|$stmt|\n";}
@@ -275,34 +350,25 @@ if ($sl_ct > 0)
 	$VUapi_allowed_functions =	$row[2];
 	$VUuser_group =				$row[3];
 	}
-
-$stmt = "SELECT use_non_latin,enable_languages,language_method,agent_debug_logging,outbound_cid_any FROM system_settings;";
-$rslt=mysql_to_mysqli($stmt, $link);
-	if ($mel > 0) {mysql_error_logging($NOW_TIME,$link,$mel,$stmt,'00XXX',$user,$server_ip,$session_name,$one_mysql_log);}
-if ($DB) {echo "$stmt\n";}
-$qm_conf_ct = mysqli_num_rows($rslt);
-if ($qm_conf_ct > 0)
-	{
-	$row=mysqli_fetch_row($rslt);
-	$non_latin =				$row[0];
-	$SSenable_languages =		$row[1];
-	$SSlanguage_method =		$row[2];
-	$SSagent_debug_logging =	$row[3];
-	$SSoutbound_cid_any =		$row[4];
-	}
 ##### END SETTINGS LOOKUP #####
 ###########################################
 
 $ingroup_choices = preg_replace("/\+/"," ",$ingroup_choices);
 $query_string = preg_replace("/'|\"|\\\\|;/","",$query_string);
 $stage = preg_replace("/\'|\"|\\\\|;/","",$stage);
-$status = preg_replace("/\'|\"|\\\\|;/","",$status);
+$close_window_link=preg_replace("/[^-_0-9a-zA-Z]/","",$close_window_link);
+$dnc_check=preg_replace("/[^-_0-9a-zA-Z]/","",$dnc_check);
+$campaign_dnc_check=preg_replace("/[^-_0-9a-zA-Z]/","",$campaign_dnc_check);
+$notification_date = preg_replace('/[^- \:0-9]/','',$notification_date);
+$multi_dial_phones = preg_replace('/[^\,0-9]/','',$multi_dial_phones);
+$md_check = preg_replace("/[^0-9a-zA-Z]/","",$md_check);
+$tw_check = preg_replace("/[^0-9a-zA-Z]/","",$tw_check);
 
 if ($non_latin < 1)
 	{
 	$user=preg_replace("/[^-_0-9a-zA-Z]/","",$user);
-	$pass=preg_replace("/[^-_0-9a-zA-Z]/","",$pass);
-	$agent_user=preg_replace("/[^0-9a-zA-Z]/","",$agent_user);
+	$pass=preg_replace("/[^-\.\+\/\=_0-9a-zA-Z]/","",$pass);
+	$agent_user=preg_replace("/[^-_0-9a-zA-Z]/","",$agent_user);
 	$function = preg_replace("/[^-\_0-9a-zA-Z]/","",$function);
 	$value = preg_replace("/[^-\|\_0-9a-zA-Z]/","",$value);
 	$focus = preg_replace("/[^-\_0-9a-zA-Z]/","",$focus);
@@ -377,12 +443,112 @@ if ($non_latin < 1)
 	$dial_ingroup = preg_replace("/[^-\_0-9a-zA-Z]/","",$dial_ingroup);
 	$cid_choice = preg_replace("/[^-\_0-9a-zA-Z]/","",$cid_choice);
 	$outbound_cid = preg_replace("/[^-\_0-9a-zA-Z]/","",$outbound_cid);
+	$recipient = preg_replace("/[^-\_0-9a-zA-Z]/","",$recipient);
+	$recipient_type = preg_replace("/[^\_a-zA-Z]/","",$recipient_type);
+	$notification_text = preg_replace('/;|#/','',$notification_text);
+		$notification_text = preg_replace('/\+/',' ',$notification_text);
+ 	$notification_retry = preg_replace("/[^YN]/i", "", $notification_retry);
+	$text_size = preg_replace("/[^0-9]/","",$text_size);
+	$text_font = preg_replace("/[^\,\- a-zA-Z]/","",$text_font);
+	$text_weight = preg_replace("/[^\,a-zA-Z]/","",$text_weight);
+	$text_color = preg_replace("/[^0-9a-zA-Z]/","",$text_color);
+	$show_confetti = preg_replace("/[^YN]/i", "", $show_confetti);
+	$duration = preg_replace("/[^0-9]/","",$duration);
+	$maxParticleCount = preg_replace("/[^0-9]/","",$maxParticleCount);
+	$particleSpeed = preg_replace("/[^0-9]/","",$particleSpeed);
 	}
 else
 	{
-	$source = preg_replace("/'|\"|\\\\|;|#/","",$source);
-	$agent_user = preg_replace("/'|\"|\\\\|;|#/","",$agent_user);
-	$alt_user = preg_replace("/'|\"|\\\\|;|#/","",$alt_user);
+	$user=preg_replace("/[^-_0-9\p{L}]/u","",$user);
+	$pass = preg_replace('/[^-\.\+\/\=_0-9\p{L}]/u','',$pass);
+	$agent_user=preg_replace("/[^-_0-9\p{L}]/u","",$agent_user);
+	$function = preg_replace("/[^-\_0-9\p{L}]/u","",$function);
+	$value = preg_replace("/[^-\|\_0-9\p{L}]/u","",$value);
+	$focus = preg_replace("/[^-\_0-9\p{L}]/u","",$focus);
+	$preview = preg_replace("/[^-\_0-9\p{L}]/u","",$preview);
+		$notes = preg_replace("/\+/"," ",$notes);
+	$notes = preg_replace("/[^- \.\_0-9\p{L}]/u","",$notes);
+	$search = preg_replace("/[^-\_0-9\p{L}]/u","",$search);
+	$group_alias = preg_replace("/[^0-9\p{L}]/u","",$group_alias);
+	$dial_prefix = preg_replace("/[^0-9\p{L}]/u","",$dial_prefix);
+	$source = preg_replace("/[^0-9\p{L}]/u","",$source);
+	$format = preg_replace("/[^0-9\p{L}]/u","",$format);
+	$vtiger_callback = preg_replace("/[^A-Z]/","",$vtiger_callback);
+	$alt_dial = preg_replace("/[^0-9A-Z]/","",$alt_dial);
+	$blended = preg_replace("/[^A-Z]/","",$blended);
+	$ingroup_choices = preg_replace("/[^- \_0-9\p{L}]/u","",$ingroup_choices);
+	$set_as_default = preg_replace("/[^A-Z]/","",$set_as_default);
+	$phone_code = preg_replace("/[^0-9X]/","",$phone_code);
+	$phone_number = preg_replace("/[^\*#0-9]/","",$phone_number);
+	$lead_id = preg_replace("/[^0-9]/","",$lead_id);
+	$vendor_id = preg_replace('/;|#/','',$vendor_id);
+		$vendor_id = preg_replace('/\+/',' ',$vendor_id);
+	$vendor_lead_code = preg_replace('/;|#/','',$vendor_lead_code);
+		$vendor_lead_code = preg_replace('/\+/',' ',$vendor_lead_code);
+	$source_id = preg_replace('/;|#/','',$source_id);
+		$source_id = preg_replace('/\+/',' ',$source_id);
+	$gmt_offset_now = preg_replace('/[^-\_\.0-9]/','',$gmt_offset_now);
+	$title = preg_replace('/[^- \'\_\.0-9\p{L}]/u','',$title);
+	$first_name = preg_replace('/[^- \'\+\_\.0-9\p{L}]/u','',$first_name);
+		$first_name = preg_replace('/\+/',' ',$first_name);
+	$middle_initial = preg_replace('/[^0-9\p{L}]/u','',$middle_initial);
+	$last_name = preg_replace('/[^- \'\+\_\.0-9\p{L}]/u','',$last_name);
+		$last_name = preg_replace('/\+/',' ',$last_name);
+	$address1 = preg_replace('/[^- \'\+\.\:\/\@\_0-9\p{L}]/u','',$address1);
+	$address2 = preg_replace('/[^- \'\+\.\:\/\@\_0-9\p{L}]/u','',$address2);
+	$address3 = preg_replace('/[^- \'\+\.\:\/\@\_0-9\p{L}]/u','',$address3);
+		$address1 = preg_replace('/\+/',' ',$address1);
+		$address2 = preg_replace('/\+/',' ',$address2);
+		$address3 = preg_replace('/\+/',' ',$address3);
+	$city = preg_replace('/[^- \'\+\.\:\/\@\_0-9\p{L}]/u','',$city);
+		$city = preg_replace('/\+/',' ',$city);
+	$state = preg_replace('/[^- 0-9\p{L}]/u','',$state);
+	$province = preg_replace('/[^- \'\+\.\_0-9\p{L}]/u','',$province);
+		$province = preg_replace('/\+/',' ',$province);
+	$postal_code = preg_replace('/[^- \'\+0-9\p{L}]/u','',$postal_code);
+		$postal_code = preg_replace('/\+/',' ',$postal_code);
+	$country_code = preg_replace('/[^A-Z]/','',$country_code);
+	$gender = preg_replace('/[^A-Z]/','',$gender);
+	$date_of_birth = preg_replace('/[^-0-9]/','',$date_of_birth);
+	$alt_phone = preg_replace('/[^- \'\+\_\.0-9\p{L}]/u','',$alt_phone);
+		$alt_phone = preg_replace('/\+/',' ',$alt_phone);
+	$email = preg_replace('/[^- \'\+\.\:\/\@\%\_0-9\p{L}]/u','',$email);
+		$email = preg_replace('/\+/',' ',$email);
+	$security_phrase = preg_replace('/[^- \'\+\.\:\/\@\_0-9\p{L}]/u','',$security_phrase);
+		$security_phrase = preg_replace('/\+/',' ',$security_phrase);
+	$comments = preg_replace('/;|#/','',$comments);
+		$comments = preg_replace('/\+/',' ',$comments);
+	$rank = preg_replace('/[^0-9]/','',$rank);
+	$owner = preg_replace('/[^- \'\+\.\:\/\@\_0-9\p{L}]/u','',$owner);
+		$owner = preg_replace('/\+/',' ',$owner);
+	$dial_override = preg_replace("/[^A-Z]/","",$dial_override);
+	$consultative = preg_replace("/[^A-Z]/","",$consultative);
+		$callback_datetime = preg_replace("/\+/"," ",$callback_datetime);
+	$callback_datetime = preg_replace("/[^- \:\.\_0-9\p{L}]/u","",$callback_datetime);
+	$callback_type = preg_replace("/[^A-Z]/","",$callback_type);
+		$callback_comments = preg_replace("/\+/"," ",$callback_comments);
+	$callback_comments = preg_replace("/[^- \.\_0-9\p{L}]/u","",$callback_comments);
+	$qm_dispo_code = preg_replace("/[^-\.\_0-9\p{L}]/u","",$qm_dispo_code);
+	$alt_user = preg_replace("/[^0-9\p{L}]/u","",$alt_user);
+	$postal_code = preg_replace("/[^- \.\_0-9\p{L}]/u","",$postal_code);
+	$agent_debug = preg_replace("/[^- \.\:\|\_0-9\p{L}]/u","",$agent_debug);
+	$status = preg_replace("/[^-\_0-9\p{L}]/u","",$status);
+	$dial_ingroup = preg_replace("/[^-\_0-9\p{L}]/u","",$dial_ingroup);
+	$cid_choice = preg_replace("/[^-\_0-9\p{L}]/u","",$cid_choice);
+	$outbound_cid = preg_replace("/[^-\_0-9\p{L}]/u","",$outbound_cid);
+	$recipient = preg_replace("/[^-\_0-9\p{L}]/u","",$recipient);
+	$recipient_type = preg_replace("/[^\_\p{L}]/u","",$recipient_type);
+	$notification_text = preg_replace('/;|#/','',$notification_text);
+		$notification_text = preg_replace('/\+/',' ',$notification_text);
+ 	$notification_retry = preg_replace("/[^YN]/i", "", $notification_retry);
+	$text_size = preg_replace("/[^0-9]/","",$text_size);
+	$text_font = preg_replace("/[^\,\- \p{L}]/u","",$text_font);
+	$text_weight = preg_replace("/[^\,\p{L}]/u","",$text_weight);
+	$text_color = preg_replace("/[^0-9\p{L}]/u","",$text_color);
+	$show_confetti = preg_replace("/[^YN]/i", "", $show_confetti);
+	$duration = preg_replace("/[^0-9]/","",$duration);
+	$maxParticleCount = preg_replace("/[^0-9]/","",$maxParticleCount);
+	$particleSpeed = preg_replace("/[^0-9]/","",$particleSpeed);
 	}
 
 ### date and fixed variables
@@ -1270,12 +1436,13 @@ if ($function == 'call_agent')
 				api_log($link,$api_logging,$api_script,$user,$agent_user,$function,$value,$result,$result_reason,$source,$data);
 				}
 			}
-		$stmt = "select count(*) from vicidial_live_agents where user='$agent_user';";
+		$stmt = "select count(*), conf_exten from vicidial_live_agents where user='$agent_user';";
 		if ($DB) {echo "$stmt\n";}
 		$rslt=mysql_to_mysqli($stmt, $link);
 		$row=mysqli_fetch_row($rslt);
 		if ($row[0] > 0)
 			{
+			$conf_exten=$row[1];
 			$stmt = "select agent_login_call from vicidial_session_data where user='$agent_user';";
 			if ($DB) {echo "$stmt\n";}
 			$rslt=mysql_to_mysqli($stmt, $link);
@@ -1287,7 +1454,8 @@ if ($function == 'call_agent')
 
 				if (strlen($agent_login_call) > 5)
 					{
-					$call_agent_string = preg_replace("/\|/","','",$agent_login_call);
+					$call_agent_conference = preg_replace("/(.+?Exten: )\d{7}(\|Priority.+)/", "$1 $conf_exten$2",$agent_login_call);
+					$call_agent_string = preg_replace("/\|/","','",$call_agent_conference);
 					$stmt="INSERT INTO vicidial_manager values('$call_agent_string');";
 						if ($format=='debug') {echo "\n<!-- $stmt -->";}
 					$rslt=mysql_to_mysqli($stmt, $link);
@@ -2337,6 +2505,13 @@ if ($function == 'change_ingroups')
 							exit;
 							}
 						}
+					# gather what the user's closer_campaigns is currently set to
+					$stmt = "select closer_campaigns from vicidial_live_agents where user='$agent_user';";
+					if ($DB) {echo "$stmt\n";}
+					$rslt=mysql_to_mysqli($stmt, $link);
+					$row=mysqli_fetch_row($rslt);
+					$orig_closer_groups_list = $row[0];
+
 					if (strlen($ingroup_choices)>0)
 						{
 						$in_groups_pre = preg_replace('/-$/','',$ingroup_choices);
@@ -2380,6 +2555,7 @@ if ($function == 'change_ingroups')
 						if ($DB) {echo "$stmt\n";}
 						$rslt=mysql_to_mysqli($stmt, $link);
 						$row=mysqli_fetch_row($rslt);
+						$orig_closer_groups_list = $row[0];
 						$closer_groups_pre = preg_replace('/-$/','',$row[0]);
 						$closer_groups = explode(" ",$closer_groups_pre);
 						$closer_groups_ct = count($closer_groups);
@@ -2433,6 +2609,7 @@ if ($function == 'change_ingroups')
 						$rslt=mysql_to_mysqli($stmt, $link);
 						$row=mysqli_fetch_row($rslt);
 						$closer_groups_list = $row[0];
+						$orig_closer_groups_list = $row[0];
 						$closer_groups_pre = preg_replace('/-$/','',$row[0]);
 						$closer_groups = explode(" ",$closer_groups_pre);
 						$closer_groups_ct = count($closer_groups);
@@ -2476,10 +2653,11 @@ if ($function == 'change_ingroups')
 						if ($format=='debug') {echo "\n<!-- $stmt -->";}
 					$rslt=mysql_to_mysqli($stmt, $link);
 
-					$stmtA="DELETE FROM vicidial_live_inbound_agents where user='$agent_user';";
-						if ($format=='debug') {echo "\n<!-- $stmtA -->";}
-					$rslt=mysql_to_mysqli($stmtA, $link);
+				#	$stmtA="DELETE FROM vicidial_live_inbound_agents where user='$agent_user';";
+				#		if ($format=='debug') {echo "\n<!-- $stmtA -->";}
+				#	$rslt=mysql_to_mysqli($stmtA, $link);
 
+					# insert/update selected closer in-groups into the vicidial_live_inbound_agents table
 					$in_groups_pre = preg_replace('/-$/','',$ingroup_choices);
 					$in_groups = explode(" ",$in_groups_pre);
 					$in_groups_ct = count($in_groups);
@@ -2488,7 +2666,7 @@ if ($function == 'change_ingroups')
 						{
 						if (strlen($in_groups[$k])>1)
 							{
-							$stmtB="SELECT group_weight,calls_today FROM vicidial_inbound_group_agents where user='$agent_user' and group_id='$in_groups[$k]';";
+							$stmtB="SELECT group_weight,calls_today,group_grade,calls_today_filtered,daily_limit FROM vicidial_inbound_group_agents where user='$agent_user' and group_id='$in_groups[$k]';";
 							$rslt=mysql_to_mysqli($stmtB, $link);
 							if ($DB) {echo "$stmtB\n";}
 							$viga_ct = mysqli_num_rows($rslt);
@@ -2497,13 +2675,38 @@ if ($function == 'change_ingroups')
 								$row=mysqli_fetch_row($rslt);
 								$group_weight = $row[0];
 								$calls_today =	$row[1];
+								$group_grade =	$row[2];
+								$calls_today_filtered =	$row[3];
+								$daily_limit =	$row[4];
 								}
 							else
 								{
 								$group_weight = 0;
 								$calls_today =	0;
+								$group_grade =	0;
+								$calls_today_filtered =	0;
+								$daily_limit =	-1;
 								}
-							$stmtB="INSERT INTO vicidial_live_inbound_agents set user='$agent_user',group_id='$in_groups[$k]',group_weight='$group_weight',calls_today='$calls_today',last_call_time='$NOW_TIME',last_call_finish='$NOW_TIME';";
+							$stmtB="INSERT IGNORE INTO vicidial_live_inbound_agents set user='$agent_user',group_id='$in_groups[$k]',group_weight='$group_weight',group_grade='$group_grade',calls_today='$calls_today',calls_today_filtered='$calls_today_filtered',last_call_time='$NOW_TIME',last_call_finish='$NOW_TIME',last_call_time_filtered='$NOW_TIME',last_call_finish_filtered='$NOW_TIME',daily_limit='$daily_limit' ON DUPLICATE KEY UPDATE group_weight='$group_weight',group_grade='$group_grade',calls_today='$calls_today',calls_today_filtered='$calls_today_filtered',daily_limit='$daily_limit';";
+							$stmtBlog .= "$stmtB|";
+								if ($format=='debug') {echo "\n<!-- $stmtB -->";}
+							$rslt=mysql_to_mysqli($stmtB, $link);
+
+							$orig_closer_groups_list = preg_replace("/ $in_groups[$k] /",' ',$orig_closer_groups_list);
+							}
+						$k++;
+						}
+
+					# remove de-selected closer groups
+					$in_groups_pre = preg_replace('/-$/','',$orig_closer_groups_list);
+					$in_groups = explode(" ",$in_groups_pre);
+					$in_groups_ct = count($in_groups);
+					$k=1;
+					while ($k < $in_groups_ct)
+						{
+						if (strlen($in_groups[$k])>1)
+							{
+							$stmtB="DELETE FROM vicidial_live_inbound_agents WHERE user='$agent_user' and group_id='$in_groups[$k]';";
 							$stmtBlog .= "$stmtB|";
 								if ($format=='debug') {echo "\n<!-- $stmtB -->";}
 							$rslt=mysql_to_mysqli($stmtB, $link);
@@ -2576,7 +2779,7 @@ if ($function == 'update_fields')
 	if (strlen($agent_user)<1)
 		{
 		$result = _QXZ("ERROR");
-		$result_reason = _QXZ("st_login_log not valid");
+		$result_reason = _QXZ("agent_user not valid");
 		$data = "$agent_user";
 		echo "$result: $result_reason - $data\n";
 		api_log($link,$api_logging,$api_script,$user,$agent_user,$function,$value,$result,$result_reason,$source,$data);
@@ -2613,12 +2816,14 @@ if ($function == 'update_fields')
 					$fieldsSQL='';
 					$fieldsLISTS='';
 					$field_set=0;
+					$agent_update=0;
 					if (preg_match('/phone_code/',$query_string))
 						{
 						if ($DB) {echo _QXZ("phone_code set to")." $phone_code\n";}
 						$fieldsSQL .= "phone_code=\"$phone_code\",";
 						$fieldsLIST .= "phone_code,";
 						$field_set++;
+						$agent_update++;
 						}
 					if (preg_match('/address1/',$query_string))
 						{
@@ -2626,6 +2831,7 @@ if ($function == 'update_fields')
 						$fieldsSQL .= "address1=\"$address1\",";
 						$fieldsLIST .= "address1,";
 						$field_set++;
+						$agent_update++;
 						}
 					if (preg_match('/address2/',$query_string))
 						{
@@ -2633,6 +2839,7 @@ if ($function == 'update_fields')
 						$fieldsSQL .= "address2=\"$address2\",";
 						$fieldsLIST .= "address2,";
 						$field_set++;
+						$agent_update++;
 						}
 					if (preg_match('/address3/',$query_string))
 						{
@@ -2640,6 +2847,7 @@ if ($function == 'update_fields')
 						$fieldsSQL .= "address3=\"$address3\",";
 						$fieldsLIST .= "address3,";
 						$field_set++;
+						$agent_update++;
 						}
 					if (preg_match('/alt_phone/',$query_string))
 						{
@@ -2647,6 +2855,7 @@ if ($function == 'update_fields')
 						$fieldsSQL .= "alt_phone=\"$alt_phone\",";
 						$fieldsLIST .= "alt_phone,";
 						$field_set++;
+						$agent_update++;
 						}
 					if (preg_match('/city/',$query_string))
 						{
@@ -2654,6 +2863,7 @@ if ($function == 'update_fields')
 						$fieldsSQL .= "city=\"$city\",";
 						$fieldsLIST .= "city,";
 						$field_set++;
+						$agent_update++;
 						}
 					if (preg_match('/comments/',$query_string))
 						{
@@ -2661,6 +2871,7 @@ if ($function == 'update_fields')
 						$fieldsSQL .= "comments=\"$comments\",";
 						$fieldsLIST .= "comments,";
 						$field_set++;
+						$agent_update++;
 						}
 					if (preg_match('/country_code/',$query_string))
 						{
@@ -2668,6 +2879,7 @@ if ($function == 'update_fields')
 						$fieldsSQL .= "country_code=\"$country_code\",";
 						$fieldsLIST .= "country_code,";
 						$field_set++;
+						$agent_update++;
 						}
 					if (preg_match('/date_of_birth/',$query_string))
 						{
@@ -2675,6 +2887,7 @@ if ($function == 'update_fields')
 						$fieldsSQL .= "date_of_birth=\"$date_of_birth\",";
 						$fieldsLIST .= "date_of_birth,";
 						$field_set++;
+						$agent_update++;
 						}
 					if (preg_match('/email/',$query_string))
 						{
@@ -2682,6 +2895,7 @@ if ($function == 'update_fields')
 						$fieldsSQL .= "email=\"$email\",";
 						$fieldsLIST .= "email,";
 						$field_set++;
+						$agent_update++;
 						}
 					if (preg_match('/first_name/',$query_string))
 						{
@@ -2689,6 +2903,7 @@ if ($function == 'update_fields')
 						$fieldsSQL .= "first_name=\"$first_name\",";
 						$fieldsLIST .= "first_name,";
 						$field_set++;
+						$agent_update++;
 						}
 					if (preg_match('/gender/',$query_string))
 						{
@@ -2696,6 +2911,7 @@ if ($function == 'update_fields')
 						$fieldsSQL .= "gender=\"$gender\",";
 						$fieldsLIST .= "gender,";
 						$field_set++;
+						$agent_update++;
 						}
 					if (preg_match('/gmt_offset_now/',$query_string))
 						{
@@ -2703,6 +2919,7 @@ if ($function == 'update_fields')
 						$fieldsSQL .= "gmt_offset_now=\"$gmt_offset_now\",";
 						$fieldsLIST .= "gmt_offset_now,";
 						$field_set++;
+						$agent_update++;
 						}
 					if (preg_match('/last_name/',$query_string))
 						{
@@ -2710,6 +2927,7 @@ if ($function == 'update_fields')
 						$fieldsSQL .= "last_name=\"$last_name\",";
 						$fieldsLIST .= "last_name,";
 						$field_set++;
+						$agent_update++;
 						}
 					if (preg_match('/middle_initial/',$query_string))
 						{
@@ -2717,6 +2935,7 @@ if ($function == 'update_fields')
 						$fieldsSQL .= "middle_initial=\"$middle_initial\",";
 						$fieldsLIST .= "middle_initial,";
 						$field_set++;
+						$agent_update++;
 						}
 					if (preg_match('/phone_number/',$query_string))
 						{
@@ -2724,6 +2943,7 @@ if ($function == 'update_fields')
 						$fieldsSQL .= "phone_number=\"$phone_number\",";
 						$fieldsLIST .= "phone_number,";
 						$field_set++;
+						$agent_update++;
 						}
 					if (preg_match('/postal_code/i',$query_string))
 						{
@@ -2731,6 +2951,7 @@ if ($function == 'update_fields')
 						$fieldsSQL .= "postal_code=\"$postal_code\",";
 						$fieldsLIST .= "postal_code,";
 						$field_set++;
+						$agent_update++;
 						}
 					if (preg_match('/province/i',$query_string))
 						{
@@ -2738,6 +2959,7 @@ if ($function == 'update_fields')
 						$fieldsSQL .= "province=\"$province\",";
 						$fieldsLIST .= "province,";
 						$field_set++;
+						$agent_update++;
 						}
 					if (preg_match('/security_phrase/i',$query_string))
 						{
@@ -2745,6 +2967,7 @@ if ($function == 'update_fields')
 						$fieldsSQL .= "security_phrase=\"$security_phrase\",";
 						$fieldsLIST .= "security_phrase,";
 						$field_set++;
+						$agent_update++;
 						}
 					if (preg_match('/source_id/i',$query_string))
 						{
@@ -2752,6 +2975,7 @@ if ($function == 'update_fields')
 						$fieldsSQL .= "source_id=\"$source_id\",";
 						$fieldsLIST .= "source_id,";
 						$field_set++;
+						$agent_update++;
 						}
 					if (preg_match('/state/i',$query_string))
 						{
@@ -2759,6 +2983,7 @@ if ($function == 'update_fields')
 						$fieldsSQL .= "state=\"$state\",";
 						$fieldsLIST .= "state,";
 						$field_set++;
+						$agent_update++;
 						}
 					if (preg_match('/title/i',$query_string))
 						{
@@ -2766,6 +2991,7 @@ if ($function == 'update_fields')
 						$fieldsSQL .= "title=\"$title\",";
 						$fieldsLIST .= "title,";
 						$field_set++;
+						$agent_update++;
 						}
 					if (preg_match('/vendor_lead_code/i',$query_string))
 						{
@@ -2773,6 +2999,7 @@ if ($function == 'update_fields')
 						$fieldsSQL .= "vendor_lead_code=\"$vendor_lead_code\",";
 						$fieldsLIST .= "vendor_lead_code,";
 						$field_set++;
+						$agent_update++;
 						}
 					if (preg_match('/rank/i',$query_string))
 						{
@@ -2780,6 +3007,7 @@ if ($function == 'update_fields')
 						$fieldsSQL .= "rank=\"$rank\",";
 						$fieldsLIST .= "rank,";
 						$field_set++;
+						$agent_update++;
 						}
 					if (preg_match('/owner/i',$query_string))
 						{
@@ -2787,23 +3015,61 @@ if ($function == 'update_fields')
 						$fieldsSQL .= "owner=\"$owner\",";
 						$fieldsLIST .= "owner,";
 						$field_set++;
+						$agent_update++;
 						}
-					if ($field_set > 0)
+					if (preg_match('/formreload/i',$query_string))
+						{
+						if ($DB) {echo _QXZ("form reload triggered")."\n";}
+						$fieldsLIST .= "formreload,";
+						$agent_update++;
+						}
+					if (preg_match('/scriptreload/i',$query_string))
+						{
+						if ($DB) {echo _QXZ("script reload triggered")."\n";}
+						$fieldsLIST .= "scriptreload,";
+						$agent_update++;
+						}
+					if (preg_match('/script2reload/i',$query_string))
+						{
+						if ($DB) {echo _QXZ("script 2 reload triggered")."\n";}
+						$fieldsLIST .= "script2reload,";
+						$agent_update++;
+						}
+					if (preg_match('/emailreload/i',$query_string))
+						{
+						if ($DB) {echo _QXZ("email reload triggered")."\n";}
+						$fieldsLIST .= "emailreload,";
+						$agent_update++;
+						}
+					if (preg_match('/chatreload/i',$query_string))
+						{
+						if ($DB) {echo _QXZ("chat reload triggered")."\n";}
+						$fieldsLIST .= "chatreload,";
+						$agent_update++;
+						}
+					if ( ($field_set > 0) or ($agent_update > 0) )
 						{
 						$fieldsSQL = preg_replace("/,$/","",$fieldsSQL);
 						$fieldsLIST = preg_replace("/,$/","",$fieldsLIST);
 
-						$stmt="UPDATE vicidial_list set $fieldsSQL where lead_id='$lead_id';";
-							if ($format=='debug') {echo "\n<!-- $stmt -->";}
-						$rslt=mysql_to_mysqli($stmt, $link);
+						$affected_rowsVL=0;
+						if ($field_set > 0)
+							{
+							$stmt="UPDATE vicidial_list set $fieldsSQL where lead_id='$lead_id';";
+								if ($format=='debug') {echo "\n<!-- $stmt -->";}
+							$rslt=mysql_to_mysqli($stmt, $link);
+							$affected_rowsVL = mysqli_affected_rows($link);
+							}
 
+						$affected_rowsVLA=0;
 						$stmt="UPDATE vicidial_live_agents set external_update_fields='1',external_update_fields_data='$fieldsLIST' where user='$agent_user';";
 							if ($format=='debug') {echo "\n<!-- $stmt -->";}
 						$rslt=mysql_to_mysqli($stmt, $link);
+						$affected_rowsVLA = mysqli_affected_rows($link);
 
 						$result = _QXZ("SUCCESS");
 						$result_reason = _QXZ("update_fields lead updated");
-						$data = "$user|$agent_user|$lead_id|$fieldsSQL";
+						$data = "$user|$agent_user|$lead_id|$affected_rowsVL|$affected_rowsVLA|$fieldsLIST|$fieldsSQL|";
 						echo "$result: $result_reason - $data\n";
 						api_log($link,$api_logging,$api_script,$user,$agent_user,$function,$value,$result,$result_reason,$source,$data);
 						}
@@ -2842,6 +3108,115 @@ if ($function == 'update_fields')
 	}
 ################################################################################
 ### END - update_fields
+################################################################################
+
+
+
+
+
+################################################################################
+### BEGIN - refresh_panel
+################################################################################
+if ($function == 'refresh_panel')
+	{
+	if (strlen($agent_user)<1)
+		{
+		$result = _QXZ("ERROR");
+		$result_reason = _QXZ("agent_user not valid");
+		$data = "$agent_user";
+		echo "$result: $result_reason - $data\n";
+		api_log($link,$api_logging,$api_script,$user,$agent_user,$function,$value,$result,$result_reason,$source,$data);
+		}
+	else
+		{
+		if ( (!preg_match("/ $function /",$VUapi_allowed_functions)) and (!preg_match("/ALL_FUNCTIONS/",$VUapi_allowed_functions)) )
+			{
+			$result = _QXZ("ERROR");
+			$result_reason = _QXZ("auth USER DOES NOT HAVE PERMISSION TO USE THIS FUNCTION");
+			echo "$result: $result_reason - $value|$user|$function|$VUuser_group\n";
+			api_log($link,$api_logging,$api_script,$user,$agent_user,$function,$value,$result,$result_reason,$source,$data);
+			exit;
+			}
+		$stmt = "select count(*) from vicidial_live_agents where user='$agent_user';";
+		if ($DB) {echo "$stmt\n";}
+		$rslt=mysql_to_mysqli($stmt, $link);
+		$row=mysqli_fetch_row($rslt);
+		if ($row[0] > 0)
+			{
+			$fieldsLISTS='';
+			$agent_update=0;
+
+			if (preg_match('/formreload/i',$query_string))
+				{
+				if ($DB) {echo _QXZ("form reload triggered")."\n";}
+				$fieldsLIST .= "formreload,";
+				$agent_update++;
+				}
+			if (preg_match('/scriptreload/i',$query_string))
+				{
+				if ($DB) {echo _QXZ("script reload triggered")."\n";}
+				$fieldsLIST .= "scriptreload,";
+				$agent_update++;
+				}
+			if (preg_match('/script2reload/i',$query_string))
+				{
+				if ($DB) {echo _QXZ("script 2 reload triggered")."\n";}
+				$fieldsLIST .= "script2reload,";
+				$agent_update++;
+				}
+			if (preg_match('/emailreload/i',$query_string))
+				{
+				if ($DB) {echo _QXZ("email reload triggered")."\n";}
+				$fieldsLIST .= "emailreload,";
+				$agent_update++;
+				}
+			if (preg_match('/chatreload/i',$query_string))
+				{
+				if ($DB) {echo _QXZ("chat reload triggered")."\n";}
+				$fieldsLIST .= "chatreload,";
+				$agent_update++;
+				}
+			if (preg_match('/callbacksreload/i',$query_string))
+				{
+				if ($DB) {echo _QXZ("callbacks reload triggered")."\n";}
+				$fieldsLIST .= "callbacksreload,";
+				$agent_update++;
+				}
+			if ( ($field_set > 0) or ($agent_update > 0) )
+				{
+				$fieldsLIST = preg_replace("/,$/","",$fieldsLIST);
+
+				$affected_rowsVLA=0;
+				$stmt="UPDATE vicidial_live_agents set external_update_fields='1',external_update_fields_data='$fieldsLIST' where user='$agent_user';";
+					if ($format=='debug') {echo "\n<!-- $stmt -->";}
+				$rslt=mysql_to_mysqli($stmt, $link);
+				$affected_rowsVLA = mysqli_affected_rows($link);
+
+				$result = _QXZ("SUCCESS");
+				$result_reason = _QXZ("refresh_panel request sent");
+				$data = "$user|$agent_user|$affected_rowsVLA|$fieldsLIST|";
+				echo "$result: $result_reason - $data\n";
+				api_log($link,$api_logging,$api_script,$user,$agent_user,$function,$value,$result,$result_reason,$source,$data);
+				}
+			else
+				{
+				$result = _QXZ("ERROR");
+				$result_reason = _QXZ("no panels have been defined");
+				echo "$result: $result_reason - $agent_user\n";
+				api_log($link,$api_logging,$api_script,$user,$agent_user,$function,$value,$result,$result_reason,$source,$data);
+				}
+			}
+		else
+			{
+			$result = _QXZ("ERROR");
+			$result_reason = _QXZ("agent_user is not logged in");
+			echo "$result: $result_reason - $agent_user\n";
+			api_log($link,$api_logging,$api_script,$user,$agent_user,$function,$value,$result,$result_reason,$source,$data);
+			}
+		}
+	}
+################################################################################
+### END - refresh_panel
 ################################################################################
 
 
@@ -3255,11 +3630,11 @@ if ($function == 'ra_call_control')
 						{$status='RAXFER';}
 					if ($call_type=='IN')
 						{
-						$stmt = "UPDATE vicidial_closer_log SET status='$status' where uniqueid='$uniqueid' and lead_id='$lead_id' and campaign_id='$campaign_id' order by closecallid desc limit 1;";
+						$stmt = "UPDATE vicidial_closer_log SET status='$status',length_in_sec=(UNIX_TIMESTAMP(NOW()) - start_epoch),end_epoch=UNIX_TIMESTAMP(NOW()) where uniqueid='$uniqueid' and lead_id='$lead_id' and campaign_id='$campaign_id' order by closecallid desc limit 1;";
 						}
 					else
 						{
-						$stmt = "UPDATE vicidial_log SET status='$status',user='$agent_user' where uniqueid='$uniqueid' and lead_id='$lead_id' order by call_date desc limit 1;";
+						$stmt = "UPDATE vicidial_log SET status='$status',user='$agent_user',length_in_sec=(UNIX_TIMESTAMP(NOW()) - start_epoch),end_epoch=UNIX_TIMESTAMP(NOW()) where uniqueid='$uniqueid' and lead_id='$lead_id' order by call_date desc limit 1;";
 						}
 					if ($format=='debug') {echo "\n<!-- $stmt -->";}
 					$rslt=mysql_to_mysqli($stmt, $link);
@@ -3523,7 +3898,7 @@ if ($function == 'send_dtmf')
 ################################################################################
 if ($function == 'park_call')
 	{
-	if ( (strlen($value)<10) or ( (strlen($agent_user)<1) and (strlen($alt_user)<2) ) )
+	if ( (!preg_match("/PARK_CUSTOMER|GRAB_CUSTOMER|PARK_IVR_CUSTOMER|GRAB_IVR_CUSTOMER|PARK_XFER|GRAB_XFER/",$value)) or ( (strlen($agent_user)<1) and (strlen($alt_user)<2) ) )
 		{
 		$result = _QXZ("ERROR");
 		$result_reason = _QXZ("park_call not valid");
@@ -3660,12 +4035,15 @@ if ($function == 'transfer_conference')
 		$row=mysqli_fetch_row($rslt);
 		if ($row[0] > 0)
 			{
-			$stmt = "select lead_id,callerid from vicidial_live_agents where user='$agent_user';";
+			$stmt = "select lead_id,callerid,server_ip,conf_exten,status from vicidial_live_agents where user='$agent_user';";
 			if ($DB) {echo "$stmt\n";}
 			$rslt=mysql_to_mysqli($stmt, $link);
 			$row=mysqli_fetch_row($rslt);
-			$lead_id =	$row[0];
-			$callerid = $row[1];
+			$lead_id =			$row[0];
+			$callerid =			$row[1];
+			$AGENTserver_ip =	$row[2];
+			$AGENTconf_exten =	$row[3];
+			$AGENTstatus =		$row[4];
 			if ( ($lead_id > 0) and (strlen($callerid)>15) )
 				{
 				### START In-group transfer or bridge ###
@@ -3849,13 +4227,120 @@ if ($function == 'transfer_conference')
 					{
 					if ($SUCCESS > 0)
 						{
+						$stmtVP='';
+						$multi_dial_phones_OUTPUT='';
+						$multi_dial_phones_STRING='';
+						if (strlen($multi_dial_phones) > 4)
+							{
+							### START 3-way press-1 multi-dial calls processing ###
+							$multi_dial_phonesARY=array();
+							$multi_dial_phones_ct=0;
+							if (preg_match("/,/",$multi_dial_phones))
+								{
+								$multi_dial_phonesARY = explode(',',$multi_dial_phones);
+								$multi_dial_phones_ct = count($multi_dial_phonesARY);
+								}
+							else
+								{
+								$multi_dial_phonesARY[0] = $multi_dial_phones;
+								$multi_dial_phones_ct = 1;
+								}
+							$mp=0;
+							$vp=0;
+							while ($mp < $multi_dial_phones_ct)
+								{
+								$temp_phone = $multi_dial_phonesARY[$mp];
+								if ( (strlen($temp_phone) > 4) and (strlen($temp_phone) < 19) and (!preg_match("/$temp_phone/",$multi_dial_phones_STRING)) )
+									{
+									if ($vp > 0) {$multi_dial_phones_STRING .= ",";}
+									$multi_dial_phones_STRING .= "$temp_phone";
+									$vp++;
+									}
+								$mp++;
+								}
+							$affected_rowsVP=0;
+							if ($vp > 0)
+								{
+								$md_check_ok=1;
+								$md_check_ct=0;
+								if (preg_match("/YES/i",$md_check))
+									{
+									$half_hour_ago = date("Y-m-d H:i:s", mktime(date("H"),date("i")-30,date("s"),date("m"),date("d"),date("Y")));
+									# check for still-active previous 3-way calls from this agent and send error if any are found
+									$stmt = "select count(*) from vicidial_3way_press_live where user='$agent_user' and status NOT IN('HUNGUP','DEFEATED','TRANSFER','TOOSLOW','DECLINED') and call_date > \"$half_hour_ago\";";
+									if ($DB) {echo "$stmt\n";}
+									$rslt=mysql_to_mysqli($stmt, $link);
+									$VDTW_live_ct = mysqli_num_rows($rslt);
+									if ($VDTW_live_ct > 0)
+										{
+										$row=mysqli_fetch_row($rslt);
+										$md_check_ct	= $row[0];
+										}
+									if ($md_check_ct > 0) {$md_check_ok = 0;}
+									}
+								if ($md_check_ok > 0)
+									{
+									$stmtVP = "INSERT IGNORE INTO vicidial_3way_press_multi SET user='$agent_user',call_date=NOW(),phone_numbers='$multi_dial_phones_STRING',phone_numbers_ct='$vp',status='NEW' ON DUPLICATE KEY UPDATE call_date=NOW(),phone_numbers='$multi_dial_phones_STRING',phone_numbers_ct='$vp',status='NEW';";
+									$rslt=mysql_to_mysqli($stmtVP, $link);
+									$affected_rowsVP = mysqli_affected_rows($link);
+									}
+								else 
+									{
+									$result = _QXZ("ERROR");
+									$result_reason = _QXZ("agent_user has previous active 3-way calls");
+									$data = "$md_check_ct|$md_check_ok|$md_check";
+									echo "$result: $result_reason - $agent_user|$data\n";
+									api_log($link,$api_logging,$api_script,$user,$agent_user,$function,$value,$result,$result_reason,$source,$data);
+									exit;
+									}
+								}
+							$multi_dial_phones_OUTPUT = "|Multi-phones: $vp $mp $affected_rowsVP";
+							### END 3-way press-1 multi-dial calls processing ###
+							}
+
+						### START Check for already active 3-way calls in agent session, if enabled ###
+						if (preg_match("/YES/i",$tw_check))
+							{
+							$conf_engine='';
+							$conf_table = 'vicidial_conferences';
+							$tw_check_ct=0;
+
+							$stmt = "SELECT conf_engine from servers where server_ip='$AGENTserver_ip';";
+							if ($DB) {echo "$stmt\n";}
+							$rslt=mysql_to_mysqli($stmt, $link);
+							$row=mysqli_fetch_row($rslt);
+							$conf_engine =	$row[0];
+							if (preg_match("/CONFBRIDGE/i",$conf_engine)) {$conf_table = 'vicidial_confbridges';}
+
+							# check for active 3-way call from this agent and send error if any are found
+							$stmt = "SELECT count(*) from live_sip_channels where server_ip='$AGENTserver_ip' and channel_group LIKE \"DC%W\" and extension='$AGENTconf_exten';";
+							if ($DB) {echo "$stmt\n";}
+							$rslt=mysql_to_mysqli($stmt, $link);
+							$TW_live_ct = mysqli_num_rows($rslt);
+							if ($TW_live_ct > 0)
+								{
+								$row=mysqli_fetch_row($rslt);
+								$tw_check_ct	= $row[0];
+								}
+							if ($tw_check_ct > 0)
+								{
+								$result = _QXZ("ERROR");
+								$result_reason = _QXZ("agent_user has current active 3-way call");
+								$data = "$tw_check_ct|0|$tw_check";
+								echo "$result: $result_reason - $agent_user|$data\n";
+								api_log($link,$api_logging,$api_script,$user,$agent_user,$function,$value,$result,$result_reason,$source,$data);
+								exit;
+								}
+							}
+						### END Check for already active 3-way calls in agent session, if enabled ###
+
 						$stmt="UPDATE vicidial_live_agents set external_transferconf='$external_transferconf' where user='$agent_user';";
 							if ($format=='debug') {echo "\n<!-- $stmt -->";}
 						if ($DB) {echo "$stmt\n";}
 						$rslt=mysql_to_mysqli($stmt, $link);
 						$result = _QXZ("SUCCESS");
 						$result_reason = _QXZ("transfer_conference function set");
-						$data = "$callerid";
+						$data = "$callerid$multi_dial_phones_OUTPUT";
 						echo "$result: $result_reason - $value|$ingroup_choices|$phone_number|$consultative|$agent_user|$data|\n";
 						api_log($link,$api_logging,$api_script,$user,$agent_user,$function,$value,$result,$result_reason,$source,$data);
 						}
@@ -4815,7 +5300,236 @@ if ($function == 'force_fronter_audio_stop')
 ################################################################################
 
 
+################################################################################
+### BEGIN - send_notification - will send text alerts and/or confetti effects to agent interface
+################################################################################
+if ($function == 'send_notification')
+	{
+	if ($SSagent_notifications < 1)
+		{
+		$result = _QXZ("ERROR");
+		$result_reason = _QXZ("Agent API Notifications are disabled on this system");
+		echo "$result: $result_reason - $SSagent_notifications\n";
+		api_log($link,$api_logging,$api_script,$user,$recipient,$function,$recipient_type,$result,$result_reason,$source,$data);
+		}
+	else
+		{
+		if ( (!preg_match("/ $function /",$VUapi_allowed_functions)) and (!preg_match("/ALL_FUNCTIONS/",$VUapi_allowed_functions)) )
+			{
+			$result = _QXZ("ERROR");
+			$result_reason = _QXZ("auth USER DOES NOT HAVE PERMISSION TO USE THIS FUNCTION");
+			echo "$result: $result_reason - $value|$user|$function|$VUuser_group\n";
+			api_log($link,$api_logging,$api_script,$user,$recipient,$function,$recipient_type,$result,$result_reason,$source,$data);
+			exit;
+			}
 
+		$valid_request=0;
+		$valid_recipients=array("USER", "USER_GROUP", "CAMPAIGN");
+
+		# &user=6666&pass=1234&source=test&function=send_notification&recipient=6666&recipient_type=USER&show_confetti=1
+		if ($recipient && !in_array($recipient_type, $valid_recipients))
+			{
+			$old_recipient_type=$recipient_type;
+			$recipient_type="";
+			$rt_stmt="select 'USER', 1 as priority from vicidial_users where user='$recipient' UNION select 'USER_GROUP', 2 from vicidial_user_groups where user_group='$recipient' UNION select 'CAMPAIGN', 3 as priority from vicidial_campaigns where campaign_id='$recipient' order by priority limit 1";
+			$rt_rslt=mysql_to_mysqli($rt_stmt, $link);
+			echo "Invalid recipient_type ($old_recipient_type), ";
+			if (mysqli_num_rows($rt_rslt)>0)
+				{
+				$rt_row=mysqli_fetch_row($rt_rslt);
+				$recipient_type=$rt_row[0];
+				echo "NOTICE: found $recipient as $recipient_type<BR>\n";
+				}
+			else
+				{
+				$result = _QXZ("ERROR");
+				$result_reason = _QXZ("no matching recipient found in users, user_groups, or campaigns");
+				echo "$result: $result_reason - $recipient\n";
+				api_log($link,$api_logging,$api_script,$user,$recipient,$function,$recipient_type,$result,$result_reason,$source,$data);
+				exit;
+				}
+			if ($DBX) {echo "$rt_stmt";}
+			}
+
+		if ($recipient && $recipient_type)
+			{
+			### Check that recipient exists in respective table
+			switch($recipient_type) 
+				{
+				case "CAMPAIGN":
+					$tbl_name="vicidial_campaigns";
+					$col_name="campaign_id";
+					break;
+				case "USER_GROUP":
+					$tbl_name="vicidial_user_groups";
+					$col_name="user_group";
+					break;
+				case "USER":
+					$tbl_name="vicidial_users";
+					$col_name="user";
+					break;
+				}
+			$exist_stmt="select $col_name from $tbl_name where $col_name='$recipient'";
+			if ($DB) {echo $exist_stmt."<BR>\n";}
+			$exist_rslt=mysql_to_mysqli($exist_stmt, $link);
+			$exist_ct = mysqli_num_rows($exist_rslt);
+			if ($exist_ct==0)
+				{
+				$result = _QXZ("ERROR");
+				$result_reason = _QXZ("$recipient DOES NOT EXIST in $tbl_name");
+				echo "$result: $result_reason - $value|$recipient\n";
+				api_log($link,$api_logging,$api_script,$user,$agent_user,$function,$value,$result,$result_reason,$source,$data);
+				exit;
+				}
+
+			# For campaign alerts, verify the user has access to said campaign
+			if($recipient_type=="CAMPAIGN" || $recipient_type=="USER_GROUP")
+				{
+				$stmt="SELECT allowed_campaigns, admin_viewable_groups from vicidial_user_groups where user_group='$VUuser_group';";
+				if ($DB>0) {echo "|$stmt|\n";}
+				$rslt=mysql_to_mysqli($stmt, $link);
+				$ss_conf_ct = mysqli_num_rows($rslt);
+				if ($ss_conf_ct > 0)
+					{
+					$row=mysqli_fetch_row($rslt);
+					$LOGallowed_campaigns =			$row[0];
+					$LOGadmin_viewable_groups =			$row[1];
+					if ($recipient_type=="CAMPAIGN" && (!preg_match('/\-ALL/i', $LOGallowed_campaigns)) && !preg_match("/ $recipient /i", $LOGallowed_campaigns) )
+						{
+						$result = _QXZ("ERROR");
+						$result_reason = _QXZ("ACCESS TO CAMPAIGN $recipient NOT ALLOWED FOR USER $user ($LOGallowed_campaigns)");
+						echo "$result: $result_reason - $value|$recipient\n";
+						api_log($link,$api_logging,$api_script,$user,$agent_user,$function,$value,$result,$result_reason,$source,$data);
+						exit;
+						}
+					else if ($recipient_type=="USER_GROUP" && (!preg_match('/\-\-\-ALL/i', $LOGadmin_viewable_groups)) && !preg_match("/ $recipient /i", $LOGadmin_viewable_groups) )
+						{
+						$result = _QXZ("ERROR");
+						$result_reason = _QXZ("ACCESS TO USER GROUP $recipient NOT ALLOWED FOR USER $user");
+						echo "$result: $result_reason - $value|$recipient\n";
+						api_log($link,$api_logging,$api_script,$user,$agent_user,$function,$value,$result,$result_reason,$source,$data);
+						exit;
+						}
+					}
+				else
+					{
+					$result = _QXZ("ERROR");
+					$result_reason = _QXZ("user_group DOES NOT EXIST");
+					echo "$result: $result_reason - $value|$VUuser_group\n";
+					api_log($link,$api_logging,$api_script,$user,$agent_user,$function,$value,$result,$result_reason,$source,$data);
+					exit;
+					}
+				}
+
+			if(!$notification_date) {$notification_date=date("Y-m-d H:i:s");}
+			if (preg_match('/Y/i', $notification_retry)) 
+				{
+				$notification_retry="Y";
+				} 
+			else 
+				{
+				$notification_retry="N";
+				}
+			if (!$text_size) {$text_size="12";}
+			if (!$text_font) {$text_font="Arial";}
+			if (!$text_weight) {$text_weight="bold";}
+			if (!$text_color) {$text_color="black";}
+
+			if (preg_match('/^[0-9A-F]{3,6}$/', $text_color)) {$text_color="#".$text_color;}
+
+			if(!preg_match('/[0-9]{2,4}\-[0-9]{1,2}\-[0-9]{1,2}\s?[0-9]{1,2}\:[0-9]{1,2}(\:[0-9]{1,2})?/', $notification_date))
+				{
+				echo "NOTICE: Invalid notification date $notification_date, changing to now";
+				$notification_date=date("Y-m-d H:i:s");
+				}
+
+			$notification_status='QUEUED';
+			$SQL_columns="recipient, recipient_type, notification_date, notification_retry, notification_status, ";
+			$SQL_values="'$recipient', '$recipient_type', '$notification_date', '$notification_retry', '$notification_status', ";
+
+			if(strlen($notification_text)>0)
+				{
+				$SQL_columns.="notification_text, text_size, text_font, text_weight, text_color, ";
+				$SQL_values.="'$notification_text', '$text_size', '$text_font', '$text_weight', '$text_color', ";
+				$valid_request=1;
+				}
+
+			## Confetti 
+			if ($show_confetti=="Y")
+				{
+				# Check if any of the three confetti settings was NOT passed, meaning the container should be checked.
+				if (!$duration || !$maxParticleCount || !$particleSpeed)
+					{
+					$confetti_stmt="select * from vicidial_settings_containers where container_id='CONFETTI_SETTINGS'";
+					if ($DBX) {echo $confetti_stmt."<BR>\n";}
+					$confetti_rslt=mysql_to_mysqli($confetti_stmt, $link);
+
+					if (mysqli_num_rows($confetti_rslt)>0)
+						{
+						$confetti_row=mysqli_fetch_array($confetti_rslt);
+						$container_entry=explode("\n", $confetti_row['container_entry']);
+
+						for ($q=0; $q<count($container_entry); $q++)
+							{
+							if (!preg_match('/^\;/', $container_entry[$q]) && preg_match('/\s\=\>\s/', $container_entry[$q]))
+								{
+								$container_setting=explode(" => ", trim($container_entry[$q]));
+								$setting_name=$container_setting[0];
+								$setting_value=$container_setting[1];
+								if ($setting_name=="duration" || $setting_name=="maxParticleCount" || $setting_name=="particleSpeed") 
+									{
+									if (!$$setting_name) {$$setting_name=$setting_value;}
+									}
+								}
+							}
+						}
+					}
+
+				# Set any remaining missing confetti settings that aren't already set
+				if (!$duration) {$duration="2";} # seconds
+				if (!$maxParticleCount) {$maxParticleCount="2350";}
+				if (!$particleSpeed) {$particleSpeed="2";}
+
+				$SQL_columns.="show_confetti, confetti_options, ";
+				$SQL_values.="'$show_confetti', '$duration,$maxParticleCount,$particleSpeed', ";
+
+				$valid_request=1;
+				}
+
+			if ($valid_request)
+				{
+				$SQL_columns=preg_replace('/, $/', "", $SQL_columns);
+				$SQL_values=preg_replace('/, $/', "", $SQL_values);
+				$ins_stmt="INSERT INTO vicidial_agent_notifications($SQL_columns) VALUES($SQL_values)";
+				if ($DB) {echo $ins_stmt."<BR>\n";}
+				$ins_rslt=mysql_to_mysqli($ins_stmt, $link);
+				$notification_id = mysqli_insert_id($link);
+
+				$result = _QXZ("SUCCESS");
+				$result_reason = _QXZ("notification queued");
+				echo "$result: $result_reason - $recipient|$recipient_type|$notification_id\n";
+				api_log($link,$api_logging,$api_script,$user,$recipient,$function,$recipient_type,$result,$result_reason,$source,$data);
+				}
+			else
+				{
+				$result = _QXZ("ERROR");
+				$result_reason = _QXZ("invalid request");
+				echo "$result: $result_reason - $recipient|$recipient_type\n";
+				api_log($link,$api_logging,$api_script,$user,$recipient,$function,$recipient_type,$result,$result_reason,$source,$data);
+				}
+			}
+		else
+			{
+			$result = _QXZ("ERROR");
+			$result_reason = _QXZ("Missing recipient or recipient_type");
+			echo "$result: $result_reason - $recipient|$recipient_type\n";
+			api_log($link,$api_logging,$api_script,$user,$recipient,$function,$recipient_type,$result,$result_reason,$source,$data);
+			}
+		}
+	}
+################################################################################
+### END - send_notification
+################################################################################
 
 
 ################################################################################

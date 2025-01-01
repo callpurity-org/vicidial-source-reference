@@ -1,7 +1,7 @@
 <?php 
 # fcstats_detail.php
 # 
-# Copyright (C) 2019  Matt Florell <vicidial@gmail.com>    LICENSE: AGPLv2
+# Copyright (C) 2024  Matt Florell <vicidial@gmail.com>    LICENSE: AGPLv2
 #
 # CHANGES
 #
@@ -43,6 +43,9 @@
 # 180508-2215 - Added new help display
 # 190216-0808 - Fix for user-group, in-group and campaign allowed/permissions matching issues
 # 191013-0851 - Fixes for PHP7
+# 220228-1955 - Added allow_web_debug system setting
+# 230621-1434 - Fixed download bug, added option to see unanswered transfers
+# 240801-1130 - Code updates for PHP8 compatibility
 #
 
 $startMS = microtime();
@@ -53,12 +56,13 @@ require("functions.php");
 $PHP_AUTH_USER=$_SERVER['PHP_AUTH_USER'];
 $PHP_AUTH_PW=$_SERVER['PHP_AUTH_PW'];
 $PHP_SELF=$_SERVER['PHP_SELF'];
+$PHP_SELF = preg_replace('/\.php.*/i','.php',$PHP_SELF);
 if (isset($_GET["DB"]))				{$DB=$_GET["DB"];}
 	elseif (isset($_POST["DB"]))	{$DB=$_POST["DB"];}
 if (isset($_GET["group"]))				{$group=$_GET["group"];}
 	elseif (isset($_POST["group"]))		{$group=$_POST["group"];}
-if (isset($_GET["campaign"]))					{$campaign=$_GET["campaign"];}
-	elseif (isset($_POST["campaign"]))			{$campaign=$_POST["campaign"];}
+if (isset($_GET["campaign"]))				{$campaign=$_GET["campaign"];}
+	elseif (isset($_POST["campaign"]))		{$campaign=$_POST["campaign"];}
 if (isset($_GET["users"]))					{$users=$_GET["users"];}
 	elseif (isset($_POST["users"]))			{$users=$_POST["users"];}
 if (isset($_GET["user_group"]))				{$user_group=$_GET["user_group"];}
@@ -71,6 +75,8 @@ if (isset($_GET["shift"]))				{$shift=$_GET["shift"];}
 	elseif (isset($_POST["shift"]))		{$shift=$_POST["shift"];}
 if (isset($_GET["show_summary"]))				{$show_summary=$_GET["show_summary"];}
 	elseif (isset($_POST["show_summary"]))		{$show_summary=$_POST["show_summary"];}
+if (isset($_GET["show_unanswered_xfers"]))			{$show_unanswered_xfers=$_GET["show_unanswered_xfers"];}
+	elseif (isset($_POST["show_unanswered_xfers"]))	{$show_unanswered_xfers=$_POST["show_unanswered_xfers"];}
 if (isset($_GET["submit"]))				{$submit=$_GET["submit"];}
 	elseif (isset($_POST["submit"]))	{$submit=$_POST["submit"];}
 if (isset($_GET["SUBMIT"]))				{$SUBMIT=$_GET["SUBMIT"];}
@@ -82,17 +88,19 @@ if (isset($_GET["report_display_type"]))			{$report_display_type=$_GET["report_d
 if (isset($_GET["search_archived_data"]))			{$search_archived_data=$_GET["search_archived_data"];}
 	elseif (isset($_POST["search_archived_data"]))	{$search_archived_data=$_POST["search_archived_data"];}
 
-if (strlen($shift)<2) {$shift='ALL';}
+$DB=preg_replace("/[^0-9a-zA-Z]/","",$DB);
 
 $NOW_DATE = date("Y-m-d");
 $NOW_TIME = date("Y-m-d H:i:s");
 $STARTtime = date("U");
-if (!isset($user_group)) {$user_group = array();}
-if (!isset($campaign)) {$campaign = array();}
-if (!isset($users)) {$users = array();}
-if (!isset($group)) {$group = array("CL_TEST_L");}
+$HTML_text='';
+if (!is_array($user_group)) {$user_group = array();}
+if (!is_array($campaign)) {$campaign = array();}
+if (!is_array($users)) {$users = array();}
+if (!is_array($group)) {$group = array();}
 if (!isset($query_date)) {$query_date = $NOW_DATE;}
 if (!isset($end_date)) {$end_date = $query_date;}
+if (strlen($shift)<2) {$shift='ALL';}
 
 $report_name = 'Fronter - Closer Detail Report';
 $db_source = 'M';
@@ -106,9 +114,9 @@ $JS_onload="onload = function() {\n";
 
 #############################################
 ##### START SYSTEM_SETTINGS LOOKUP #####
-$stmt = "SELECT use_non_latin,outbound_autodial_active,slave_db_server,reports_use_slave_db,enable_languages,language_method,report_default_format FROM system_settings;";
+$stmt = "SELECT use_non_latin,outbound_autodial_active,slave_db_server,reports_use_slave_db,enable_languages,language_method,report_default_format,allow_web_debug FROM system_settings;";
 $rslt=mysql_to_mysqli($stmt, $link);
-if ($DB) {$HTML_text.="$stmt\n";}
+#if ($DB) {echo "$stmt\n";}
 $qm_conf_ct = mysqli_num_rows($rslt);
 if ($qm_conf_ct > 0)
 	{
@@ -120,10 +128,40 @@ if ($qm_conf_ct > 0)
 	$SSenable_languages =			$row[4];
 	$SSlanguage_method =			$row[5];
 	$SSreport_default_format =		$row[6];
+	$SSallow_web_debug =			$row[7];
 	}
+if ($SSallow_web_debug < 1) {$DB=0;}
+if (strlen($report_display_type)<2) {$report_display_type = $SSreport_default_format;}
 ##### END SETTINGS LOOKUP #####
 ###########################################
-if (strlen($report_display_type)<2) {$report_display_type = $SSreport_default_format;}
+
+$query_date = preg_replace('/[^- \:\_0-9a-zA-Z]/', '', $query_date);
+$end_date = preg_replace('/[^- \:\_0-9a-zA-Z]/', '', $end_date);
+$submit = preg_replace('/[^-_0-9a-zA-Z]/', '', $submit);
+$SUBMIT = preg_replace('/[^-_0-9a-zA-Z]/', '', $SUBMIT);
+$search_archived_data = preg_replace('/[^-_0-9a-zA-Z]/', '', $search_archived_data);
+$shift = preg_replace("/\<|\>|\'|\"|\\\\|;/","",$shift);
+$show_summary = preg_replace('/[^-_0-9a-zA-Z]/', '', $show_summary);
+$file_download = preg_replace('/[^-_0-9a-zA-Z]/', '', $file_download);
+$report_display_type = preg_replace('/[^-_0-9a-zA-Z]/', '', $report_display_type);
+$show_unanswered_xfers = preg_replace('/[^-_0-9a-zA-Z]/', '', $show_unanswered_xfers);
+
+# Variables filtered further down in the code
+# $user_group
+# $campaign
+# $users
+# $group
+
+if ($non_latin < 1)
+	{
+	$PHP_AUTH_USER = preg_replace('/[^-_0-9a-zA-Z]/', '', $PHP_AUTH_USER);
+	$PHP_AUTH_PW = preg_replace('/[^-_0-9a-zA-Z]/', '', $PHP_AUTH_PW);
+	}
+else
+	{
+	$PHP_AUTH_USER = preg_replace('/[^-_0-9\p{L}]/u', '', $PHP_AUTH_USER);
+	$PHP_AUTH_PW = preg_replace('/[^-_0-9\p{L}]/u', '', $PHP_AUTH_PW);
+	}
 
 ### ARCHIVED DATA CHECK CONFIGURATION
 $archives_available="N";
@@ -150,18 +188,6 @@ else
 	$vicidial_closer_log_table="vicidial_closer_log";
 	}
 #############
-
-if ($non_latin < 1)
-	{
-	$PHP_AUTH_USER = preg_replace('/[^-_0-9a-zA-Z]/', '', $PHP_AUTH_USER);
-	$PHP_AUTH_PW = preg_replace('/[^-_0-9a-zA-Z]/', '', $PHP_AUTH_PW);
-	}
-else
-	{
-	$PHP_AUTH_PW = preg_replace("/'|\"|\\\\|;/","",$PHP_AUTH_PW);
-	$PHP_AUTH_USER = preg_replace("/'|\"|\\\\|;/","",$PHP_AUTH_USER);
-	}
-$shift = preg_replace("/'|\"|\\\\|;/","",$shift);
 
 $stmt="SELECT selected_language from vicidial_users where user='$PHP_AUTH_USER';";
 if ($DB) {echo "|$stmt|\n";}
@@ -270,7 +296,7 @@ else
 	$webserver_id = mysqli_insert_id($link);
 	}
 
-$stmt="INSERT INTO vicidial_report_log set event_date=NOW(), user='$PHP_AUTH_USER', ip_address='$LOGip', report_name='$report_name', browser='$LOGbrowser', referer='$LOGhttp_referer', notes='$LOGserver_name:$LOGserver_port $LOGscript_name |" . implode("-", $group) . ", $query_date, $end_date, $shift, $file_download, $report_display_type|', url='$LOGfull_url', webserver='$webserver_id';";
+$stmt="INSERT INTO vicidial_report_log set event_date=NOW(), user='$PHP_AUTH_USER', ip_address='$LOGip', report_name='$report_name', browser='$LOGbrowser', referer='$LOGhttp_referer', notes='$LOGserver_name:$LOGserver_port $LOGscript_name |$query_date, $end_date, $shift, $file_download, $report_display_type|', url='$LOGfull_url', webserver='$webserver_id';";
 if ($DB) {echo "|$stmt|\n";}
 $rslt=mysql_to_mysqli($stmt, $link);
 $report_log_id = mysqli_insert_id($link);
@@ -286,13 +312,13 @@ if ( (strlen($slave_db_server)>5) and (preg_match("/$report_name/",$reports_use_
 	}
 
 $stmt="SELECT user_group from vicidial_users where user='$PHP_AUTH_USER';";
-if ($DB) {$HTML_text.="|$stmt|\n";}
+if ($DB) {echo "|$stmt|\n";}
 $rslt=mysql_to_mysqli($stmt, $link);
 $row=mysqli_fetch_row($rslt);
 $LOGuser_group =			$row[0];
 
 $stmt="SELECT allowed_campaigns,allowed_reports,admin_viewable_groups,admin_viewable_call_times from vicidial_user_groups where user_group='$LOGuser_group';";
-if ($DB) {$HTML_text.="|$stmt|\n";}
+if ($DB) {echo "|$stmt|\n";}
 $rslt=mysql_to_mysqli($stmt, $link);
 $row=mysqli_fetch_row($rslt);
 $LOGallowed_campaigns =			$row[0];
@@ -342,7 +368,7 @@ if ( (!preg_match('/\-\-ALL\-\-/i', $LOGadmin_viewable_call_times)) and (strlen(
 
 $stmt="select group_id from vicidial_inbound_groups $whereLOGadmin_viewable_groupsSQL order by group_id;";
 $rslt=mysql_to_mysqli($stmt, $link);
-if ($DB) {$HTML_text.="$stmt\n";}
+if ($DB) {echo "$stmt\n";}
 $groups_to_print = mysqli_num_rows($rslt);
 $i=0;
 $groups_string='|';
@@ -357,7 +383,7 @@ while ($i < $groups_to_print)
 
 $stmt="SELECT campaign_id from vicidial_campaigns $whereLOGallowed_campaignsSQL order by campaign_id;";
 $rslt=mysql_to_mysqli($stmt, $link);
-if ($DB) {$HTML_text.="$stmt\n";}
+if ($DB) {echo "$stmt\n";}
 $campaigns_to_print = mysqli_num_rows($rslt);
 $i=0;
 $campaigns=array();
@@ -377,7 +403,7 @@ for ($i=0; $i<count($user_group); $i++)
 
 $stmt="SELECT user_group from vicidial_user_groups $whereLOGadmin_viewable_groupsSQL order by user_group;";
 $rslt=mysql_to_mysqli($stmt, $link);
-if ($DB) {$HTML_text.="$stmt\n";}
+if ($DB) {echo "$stmt\n";}
 $user_groups_to_print = mysqli_num_rows($rslt);
 $i=0;
 #$user_groups[$i]="Auto-dial agents";
@@ -393,7 +419,7 @@ while ($i < $user_groups_to_print)
 
 $stmt="SELECT user, full_name from vicidial_users $whereLOGadmin_viewable_groupsSQL order by user";
 $rslt=mysql_to_mysqli($stmt, $link);
-if ($DB) {$HTML_text.="$stmt\n";}
+if ($DB) {echo "$stmt\n";}
 $users_to_print = mysqli_num_rows($rslt);
 $i=0;
 $user_list=array();
@@ -412,6 +438,7 @@ $campaign_string='|';
 $campaign_ct = count($campaign);
 while($i < $campaign_ct)
 	{
+	$campaign[$i] = preg_replace('/[^-_0-9\p{L}]/u', '', $campaign[$i]);
 	if ( (preg_match("/ $campaign[$i] /",$regexLOGallowed_campaigns)) or (preg_match("/-ALL/",$LOGallowed_campaigns)) )
 		{
 		$campaign_string .= "$campaign[$i]|";
@@ -441,6 +468,7 @@ $user_group_string='|';
 $user_group_ct = count($user_group);
 while($i < $user_group_ct)
 	{
+	$user_group[$i] = preg_replace('/[^-_0-9\p{L}]/u', '', $user_group[$i]);
 	$user_group_string .= "$user_group[$i]|";
 	$user_group_SQL .= "'$user_group[$i]',";
 	$user_groupQS .= "&user_group[]=$user_group[$i]";
@@ -468,6 +496,7 @@ $users_string='|';
 $user_ct = count($users);
 while($i < $user_ct)
 	{
+	$users[$i] = preg_replace('/[^-_0-9\p{L}]/u', '', $users[$i]);
 	$users_string .= "$users[$i]|";
 	$user_SQL .= "'$users[$i]',";
 	$userQS .= "&users[]=$users[$i]";
@@ -490,6 +519,18 @@ else
 	$user_xfer_log_SQL = "and ".$vicidial_xfer_log_table.".user IN($user_SQL)";
 	$user_closer_log_SQL = "and ".$vicidial_closer_log_table.".user IN($user_SQL)";
 	$user_SQL = "and user IN($user_SQL)";
+	}
+
+$i=0;
+$group_string='|';
+$group_ct = count($group);
+while($i < $group_ct)
+	{
+	$group[$i] = preg_replace('/[^-_0-9\p{L}]/u', '', $group[$i]);
+	$group_string .= "$group[$i]|";
+	$group_SQL .= "'$group[$i]',";
+	$groupQS .= "&group[]=$group[$i]";
+	$i++;
 	}
 
 require("screen_colors.php");
@@ -635,8 +676,9 @@ if ($archives_available=="Y")
 	$HTML_text.="<input type='checkbox' name='search_archived_data' value='checked' $search_archived_data>"._QXZ("Search archived data")."<BR><BR>\n";
 	}
 $HTML_text.="<input type='checkbox' name='show_summary' value='checked' $show_summary>"._QXZ("Show fronter/closer summary")."<BR><BR>\n";
+$HTML_text.="<input type='checkbox' name='show_unanswered_xfers' value='checked' $show_unanswered_xfers>"._QXZ("Show unanswered transfers")."<BR><BR>\n";
 $HTML_text.="<INPUT TYPE=submit NAME=SUBMIT VALUE='"._QXZ("SUBMIT")."'><BR><BR>\n";
-$HTML_text.="<FONT FACE=\"ARIAL,HELVETICA\" COLOR=BLACK SIZE=2><a href=\"$PHP_SELF?query_date=$query_date&end_date=$end_date&group[]=" . implode("&group[]=", array_map(array($link, 'real_escape_string'), $group)) . "&shift=$shift&file_download=1&search_archived_data=$search_archived_data&show_summary=$show_summary$campaignQS$user_groupQS$userQS\">"._QXZ("DOWNLOAD")."</a> | <a href=\"./admin.php?ADD=3111&group_id=$group\">"._QXZ("MODIFY")."</a> | <a href=\"./admin.php?ADD=999999\">"._QXZ("REPORTS")."</a><BR/></FONT>\n";
+$HTML_text.="<FONT FACE=\"ARIAL,HELVETICA\" COLOR=BLACK SIZE=2><a href=\"$PHP_SELF?query_date=$query_date&end_date=$end_date&group[]=" . implode("&group[]=", array_map(array($link, 'real_escape_string'), $group)) . "&shift=$shift&file_download=1&show_unanswered_xfers=$show_unanswered_xfers&search_archived_data=$search_archived_data&show_summary=$show_summary$campaignQS$user_groupQS$userQS\">"._QXZ("DOWNLOAD")."</a> | <a href=\"./admin.php?ADD=3111&group_id=$group\">"._QXZ("MODIFY")."</a> | <a href=\"./admin.php?ADD=999999\">"._QXZ("REPORTS")."</a><BR/></FONT>\n";
 $HTML_text.="</TD>";
 
 
@@ -683,7 +725,7 @@ if ($campaign_ct>0 || $user_group_ct>0 || $user_ct>0) {
 	$total_agent_stmt="select distinct user from ".$vicidial_agent_log_table." where event_time >= '$query_date_BEGIN' and event_time <= '$query_date_END' $campaign_agent_log_SQL $user_group_agent_log_SQL $user_group_agent_log_SQL order by user";
 	$total_agent_rslt=mysql_to_mysqli($total_agent_stmt, $link);
 	$total_user_SQL="";
-	if ($DB) {$HTML_text.="$total_agent_stmt\n";}
+	if ($DB) {echo "$total_agent_stmt\n";}
 	while ($agent_row=mysqli_fetch_row($total_agent_rslt)) {
 		$total_user_SQL .= "'$agent_row[0]',";
 	}
@@ -692,13 +734,16 @@ if ($campaign_ct>0 || $user_group_ct>0 || $user_ct>0) {
 	$summary_user_closer_log_SQL = "and ".$vicidial_closer_log_table.".user IN($total_user_SQL)";
 }
 
+$complete_xfer_log=array();
+$complete_fronter_stats=array();
+$complete_closer_stats=array();
 
 #### LOG SECTION
 if ($campaign_ct>0 || $user_group_ct>0 || $user_ct>0) {
 	/*
 	# xfers originating from outbound calls
 	$xfer_stmt="select ".$vicidial_log_table.".call_date, ".$vicidial_log_table.".lead_id, ".$vicidial_log_table.".user, ".$vicidial_log_table.".user_group, ".$vicidial_log_table.".campaign_id, ".$vicidial_xfer_log_table.".campaign_id, ".$vicidial_agent_log_table.".campaign_id, ".$vicidial_closer_log_table.".campaign_id, ".$vicidial_closer_log_table.".user, ".$vicidial_closer_log_table.".user_group, ".$vicidial_closer_log_table.".call_date, ".$vicidial_closer_log_table.".uniqueid from ".$vicidial_log_table.", ".$vicidial_xfer_log_table.", ".$vicidial_agent_log_table.", ".$vicidial_closer_log_table." where ".$vicidial_log_table.".call_date>='$query_date_BEGIN' and ".$vicidial_log_table.".call_date<='$query_date_END' and ".$vicidial_log_table.".lead_id=".$vicidial_xfer_log_table.".lead_id and ".$vicidial_xfer_log_table.".campaign_id='" . mysqli_real_escape_string($link, $group) . "' and ".$vicidial_xfer_log_table.".call_date>='$query_date_BEGIN' and ".$vicidial_xfer_log_table.".call_date<='$query_date_END' and ".$vicidial_xfer_log_table.".xfercallid=".$vicidial_closer_log_table.".xfercallid and ".$vicidial_xfer_log_table.".lead_id=".$vicidial_closer_log_table.".lead_id and ".$vicidial_xfer_log_table.".closer=".$vicidial_closer_log_table.".user and ".$vicidial_closer_log_table.".call_date>='$query_date_BEGIN' and ".$vicidial_closer_log_table.".call_date<='$query_date_END' and ".$vicidial_closer_log_table.".uniqueid=".$vicidial_agent_log_table.".uniqueid and ".$vicidial_agent_log_table.".event_time>='$query_date_BEGIN' and ".$vicidial_agent_log_table.".event_time<='$query_date_END' and timediff(".$vicidial_xfer_log_table.".call_date, ".$vicidial_log_table.".call_date)<'00:30:00' and timediff(".$vicidial_xfer_log_table.".call_date, ".$vicidial_log_table.".call_date)>='0' $user_agent_log_SQL $user_vicidial_log_SQL $user_xfer_log_SQL $user_closer_log_SQL $user_group_agent_log_SQL $user_group_vicidial_log_SQL $user_group_closer_log_SQL $campaign_agent_log_SQL $campaign_vicidial_log_SQL";
-	if ($DB) {$HTML_text.="<B>$xfer_stmt</B>\n";}
+	if ($DB) {echo "<B>$xfer_stmt</B>\n";}
 	$xfer_rslt=mysql_to_mysqli($xfer_stmt, $link);
 	while ($xfer_row=mysqli_fetch_row($xfer_rslt)) {
 		array_push($complete_xfer_log, $xfer_row);
@@ -706,7 +751,7 @@ if ($campaign_ct>0 || $user_group_ct>0 || $user_ct>0) {
 
 	# xfers originating from inbound calls
 	$xfer_stmt1="select ".$vicidial_closer_log_table.".call_date, ".$vicidial_closer_log_table.".lead_id, ".$vicidial_closer_log_table.".user, ".$vicidial_closer_log_table.".user_group, ".$vicidial_agent_log_table.".campaign_id, ".$vicidial_closer_log_table.".campaign_id as ingroup, ".$vicidial_xfer_log_table.".xfercallid from ".$vicidial_closer_log_table.", ".$vicidial_agent_log_table.", ".$vicidial_xfer_log_table." where ".$vicidial_xfer_log_table.".campaign_id='" . mysqli_real_escape_string($link, $group) . "' and ".$vicidial_closer_log_table.".call_date>='$query_date_BEGIN' and ".$vicidial_closer_log_table.".call_date<='$query_date_END' and ".$vicidial_closer_log_table.".lead_id=".$vicidial_xfer_log_table.".lead_id and ".$vicidial_closer_log_table.".xfercallid=0 and ".$vicidial_closer_log_table.".user=".$vicidial_xfer_log_table.".user and ".$vicidial_xfer_log_table.".call_date>='$query_date_BEGIN' and ".$vicidial_xfer_log_table.".call_date<='$query_date_END' and ".$vicidial_closer_log_table.".uniqueid=".$vicidial_agent_log_table.".uniqueid and ".$vicidial_agent_log_table.".event_time>='$query_date_BEGIN' and ".$vicidial_agent_log_table.".event_time<='$query_date_END' and timediff(".$vicidial_xfer_log_table.".call_date, ".$vicidial_closer_log_table.".call_date)<'00:30:00' and timediff(".$vicidial_xfer_log_table.".call_date, ".$vicidial_closer_log_table.".call_date)>='0' $user_agent_log_SQL $user_xfer_log_SQL $user_closer_log_SQL $user_group_agent_log_SQL $user_group_closer_log_SQL $campaign_agent_log_SQL";
-	if ($DB) {$HTML_text.="<B>$xfer_stmt1</B>\n";}
+	if ($DB) {echo "<B>$xfer_stmt1</B>\n";}
 	$xfer_rslt1=mysql_to_mysqli($xfer_stmt1, $link);
 	while ($xfer_row1=mysqli_fetch_row($xfer_rslt1)) {
 		$temp_array=array();
@@ -714,7 +759,7 @@ if ($campaign_ct>0 || $user_group_ct>0 || $user_ct>0) {
 		array_push($temp_array, "$xfer_row1[0]", "$xfer_row1[1]", "$xfer_row1[2]", "$xfer_row1[3]", "$xfer_row1[4]", "$xfer_row1[5]");
 
 		$xfer_stmt2="select ".$vicidial_agent_log_table.".campaign_id, ".$vicidial_closer_log_table.".campaign_id, ".$vicidial_closer_log_table.".user, ".$vicidial_closer_log_table.".user_group, ".$vicidial_closer_log_table.".call_date from ".$vicidial_agent_log_table.", ".$vicidial_xfer_log_table.", ".$vicidial_closer_log_table." where ".$vicidial_xfer_log_table.".xfercallid='$xfercallid' and ".$vicidial_xfer_log_table.".lead_id=".$vicidial_closer_log_table.".lead_id and ".$vicidial_xfer_log_table.".closer=".$vicidial_closer_log_table.".user and ".$vicidial_closer_log_table.".uniqueid=".$vicidial_agent_log_table.".uniqueid and ".$vicidial_closer_log_table.".xfercallid='$xfercallid' and ".$vicidial_agent_log_table.".event_time>='$query_date_BEGIN' and ".$vicidial_agent_log_table.".event_time<='$query_date_END'";
-		if ($DB) {$HTML_text.="<B>$xfer_stmt2</B>\n";}
+		if ($DB) {echo "<B>$xfer_stmt2</B>\n";}
 		$xfer_rslt2=mysql_to_mysqli($xfer_stmt2, $link);
 		while ($xfer_row2=mysqli_fetch_row($xfer_rslt2)) {
 			array_push($temp_array, "$xfer_row2[0]", "$xfer_row2[1]", "$xfer_row2[2]", "$xfer_row2[3]", "$xfer_row2[4]");
@@ -725,13 +770,16 @@ if ($campaign_ct>0 || $user_group_ct>0 || $user_ct>0) {
 	*/
 
 	$complete_xfer_log=array();
+	$complete_fronter_stats=array();
+	$complete_closer_stats=array();
 	$xfer_log_stmt="select * from vicidial_xfer_log where campaign_id in ('" . implode("','", array_map(array($link, 'real_escape_string'), $group)) . "') and call_date>='$query_date_BEGIN' and call_date<='$query_date_END' $user_SQL";
-	if ($DB) {$HTML_text.="<B>$xfer_log_stmt</B>\n";}
+	if ($DB) {echo "<B>$xfer_log_stmt</B>\n";}
 	$xfer_log_rslt=mysql_to_mysqli($xfer_log_stmt, $link);
 	while ($xfer_row=mysqli_fetch_array($xfer_log_rslt)) {
 		$temp_array=array();
 		$xfercallid=$xfer_row["xfercallid"];
 		$closer=$xfer_row["closer"];
+		if ($closer=="VDXL" && $show_unanswered_xfers) {$closer="VDCL";}
 		$campaign_id="";
 
 		$lead_stmt="select * from vicidial_list where lead_id='$xfer_row[lead_id]'";
@@ -742,7 +790,7 @@ if ($campaign_ct>0 || $user_group_ct>0 || $user_ct>0) {
 
 		$fronter_log_stmt="select call_date, user_group, campaign_id from vicidial_log where lead_id='$xfer_row[lead_id]' and user='$xfer_row[user]' and call_date>='$xfer_row[call_date]'-INTERVAL 30 MINUTE and call_date<='$xfer_row[call_date]' $campaign_SQL $user_group_SQL order by call_date desc limit 1";
 		$fronter_log_rslt=mysql_to_mysqli($fronter_log_stmt, $link);
-		if ($DB) {$HTML_text.="<B>$fronter_log_stmt</B>\n";}
+		if ($DB) {echo "<B>$fronter_log_stmt</B>\n";}
 		if (mysqli_num_rows($fronter_log_rslt)>0) {
 			while ($fronter_row=mysqli_fetch_array($fronter_log_rslt)) {
 				$call_date=$fronter_row["call_date"];
@@ -751,6 +799,16 @@ if ($campaign_ct>0 || $user_group_ct>0 || $user_ct>0) {
 				$user_group=$fronter_row["user_group"];
 				$campaign_id=$fronter_row["campaign_id"];
 				$ingroup=$xfer_row["campaign_id"];
+
+				if($user_group=="") # sometimes NULL in closer_log
+					{
+					$val_stmt="select user_group, abs(timestampdiff(SECOND, '$xfer_row[call_date]', event_time)) as time_diff from vicidial_agent_log where user='$user' order by time_diff asc limit 1";
+					$val_rslt=mysql_to_mysqli($val_stmt, $link);
+					while ($val_row=mysqli_fetch_array($val_rslt))
+						{
+						$user_group=$val_row["user_group"];
+						}
+					}
 
 				#$uniqueid=$fronter_row["uniqueid"];
 				#$agent_log_stmt="select * From vicidial_agent_log where uniqueid='$uniqueid' $campaignSQL";
@@ -763,13 +821,23 @@ if ($campaign_ct>0 || $user_group_ct>0 || $user_ct>0) {
 		} else {
 			$closer_log_stmt="select uniqueid, user_group, call_date from vicidial_closer_log where call_date>='$xfer_row[call_date]'-INTERVAL 30 MINUTE and call_date<='$xfer_row[call_date]' and lead_id='$xfer_row[lead_id]' and user='$xfer_row[user]' order by call_date desc limit 1";
 			$closer_log_rslt=mysql_to_mysqli($closer_log_stmt, $link);
-			if ($DB) {$HTML_text.="<B>$closer_log_stmt</B>\n";}
+			if ($DB) {echo "<B>$closer_log_stmt</B>\n";}
 			while ($closer_row=mysqli_fetch_array($closer_log_rslt)) {
 				$call_date=$closer_row["call_date"];
 				$lead_id=$xfer_row["lead_id"];
 				$user=$xfer_row["user"];
 				$user_group=$closer_row["user_group"];
 				$ingroup=$xfer_row["campaign_id"];
+
+				if($user_group=="") # sometimes NULL in closer_log
+					{
+					$val_stmt="select user_group, abs(timestampdiff(SECOND, '$xfer_row[call_date]', event_time)) as time_diff from vicidial_agent_log where user='$user' order by time_diff asc limit 1";
+					$val_rslt=mysql_to_mysqli($val_stmt, $link);
+					while ($val_row=mysqli_fetch_array($val_rslt))
+						{
+						$user_group=$val_row["user_group"];
+						}
+					}
 
 				$uniqueid=$closer_row["uniqueid"];
 				$agent_log_stmt="select campaign_id From vicidial_agent_log where uniqueid='$uniqueid' and event_time>='$query_date_BEGIN' and event_time<='$query_date_END' $campaign_SQL $user_group_SQL";
@@ -787,7 +855,7 @@ if ($campaign_ct>0 || $user_group_ct>0 || $user_ct>0) {
 
 			$closer_xfer_log_stmt="select uniqueid, campaign_id, call_date, status from vicidial_closer_log where campaign_id in ('" . implode("','", array_map(array($link, 'real_escape_string'), $group)) . "') and call_date>='$xfer_row[call_date]' and call_date<='$xfer_row[call_date]'+INTERVAL 1 HOUR and xfercallid='$xfercallid' and user='$closer' $user_SQL $user_group_SQL order by call_date asc limit 1";
 			$closer_xfer_log_rslt=mysql_to_mysqli($closer_xfer_log_stmt, $link);
-			if ($DB) {$HTML_text.="<B>$closer_xfer_log_stmt</B>\n";}
+			if ($DB) {echo "<B>$closer_xfer_log_stmt</B>|".mysqli_num_rows($closer_xfer_log_rslt)."\n";}
 			if (mysqli_num_rows($closer_xfer_log_rslt)>0) {
 				$closer_xfer_row=mysqli_fetch_array($closer_xfer_log_rslt);
 				$closer_uid=$closer_xfer_row["uniqueid"];
@@ -797,6 +865,7 @@ if ($campaign_ct>0 || $user_group_ct>0 || $user_ct>0) {
 
 				$closer_agent_log_stmt="select campaign_id, user_group from vicidial_agent_log where user='$closer' and uniqueid='$closer_uid' and event_time>='$query_date_BEGIN' and event_time<='$query_date_END' $user_SQL $user_group_SQL $campaign_SQL"; #$campaignSQL necessary?
 				$closer_agent_log_rslt=mysql_to_mysqli($closer_agent_log_stmt, $link);
+				if ($DB) {echo "<B>$closer_agent_log_stmt</B>|".mysqli_num_rows($closer_agent_log_rslt)."\n";}
 				if (mysqli_num_rows($closer_agent_log_rslt)>0) {
 					$closer_agent_log_row=mysqli_fetch_array($closer_agent_log_rslt);
 					$closer_campaign=$closer_agent_log_row["campaign_id"];
@@ -804,6 +873,15 @@ if ($campaign_ct>0 || $user_group_ct>0 || $user_ct>0) {
 
 					array_push($temp_array, "$closer_campaign", "$closer_ingroup", "$closer", "$closer_user_group", "$closer_call_date", "$status");
 					array_push($complete_xfer_log, $temp_array);
+
+					$complete_fronter_stats["$user"]["$status"]++;
+					$complete_closer_stats["$closer"]["$status"]++;
+				} else if ($closer=="VDCL" && $show_unanswered_xfers) {
+					array_push($temp_array, "$closer_ingroup", "$closer_ingroup", "$closer", "ADMIN", "$closer_call_date", "$status");
+					array_push($complete_xfer_log, $temp_array);
+
+					$complete_fronter_stats["$user"]["$status"]++;
+					$complete_closer_stats["$closer"]["$status"]++;
 				}
 			}
 		}
@@ -826,6 +904,7 @@ if (count($complete_xfer_log)>0) {
 	$HTML_text.="| "._QXZ("CALL DATE (INITIAL)", 19)." | "._QXZ("LEAD ID", 9)." | "._QXZ("PHONE NUMBER", 20)." | "._QXZ("PROVINCE", 20)." | "._QXZ("USER", 20)." | "._QXZ("USER GROUP - FRONTER", 20)." | "._QXZ("FRONT CAMP", 10)." | "._QXZ("INBOUND/XFER GROUP", 20)." | "._QXZ("RECVD CAMP", 10)." | "._QXZ("RCVD GROUP", 20)." | "._QXZ("USER", 20)." | "._QXZ("USER GROUP - CLOSER", 20)." | "._QXZ("RECEIPT DATE", 19)." | "._QXZ("STATUS", 6)." |\n";
 	$CSV_text1="\""._QXZ("CALL DATE (INITIAL)")."\",\""._QXZ("LEAD ID")."\",\""._QXZ("PHONE NUMBER")."\",\""._QXZ("PROVINCE")."\",\""._QXZ("USER")."\",\""._QXZ("USER GROUP - FRONTER")."\",\""._QXZ("FRONT CAMP")."\",\""._QXZ("INBOUND/XFER GROUP")."\",\""._QXZ("RECVD CAMP")."\",\""._QXZ("RCVD GROUP")."\",\""._QXZ("USER")."\",\""._QXZ("USER GROUP - CLOSER")."\",\""._QXZ("RECEIPT DATE")."\",\""._QXZ("STATUS")."\"\n";
 	$HTML_text.=$output_header;
+	$total_transfers=0;
 	for($i=0; $i<count($complete_xfer_log); $i++) {
 		$HTML_text.="| ";
 		$HTML_text.=sprintf("%-19s", $complete_xfer_log[$i][0])." | ";
@@ -847,8 +926,11 @@ if (count($complete_xfer_log)>0) {
 		}
 		$CSV_text1=preg_replace("/,$/", "", $CSV_text1);
 		$CSV_text1.="\n";
+		$total_transfers++;
 	}
 	$HTML_text.=$output_header;
+	$HTML_text.="| ".sprintf("%-31s", _QXZ("TOTAL TRANSFERS").": $total_transfers")." |\n";
+	$HTML_text.="+---------------------------------+\n\n";
 } else {
 	$CSV_text1=count($complete_xfer_log);
 }
@@ -863,7 +945,7 @@ $HTML_text.="---------- "._QXZ("TOTALS FOR")." $query_date_BEGIN "._QXZ("to")." 
 
 $SQL_group_id = preg_replace("/_/",'\\_',$group);
 $sale_dispo_stmt="select distinct status from vicidial_campaign_statuses where sale='Y' and campaign_id in (SELECT campaign_id from vicidial_campaigns where closer_campaigns LIKE \"% " . implode(" %\" OR closer_campaigns LIKE \"% ", array_map(array($link, 'real_escape_string'), $SQL_group_id)) . " %\" $LOGallowed_campaignsSQL) UNION select distinct status from vicidial_statuses where sale='Y'";
-if ($DB) {$HTML_text.="$sale_dispo_stmt\n";}
+if ($DB) {echo "$sale_dispo_stmt\n";}
 $sale_dispo_rslt=mysql_to_mysqli($sale_dispo_stmt, $link);
 $sale_dispos="'SALE'"; $sale_dispo_str="|SALE";
 while ($ssrow=mysqli_fetch_row($sale_dispo_rslt)) {
@@ -875,7 +957,7 @@ if ($DB) {$HTML_text.=_QXZ("Sale dispo string").": $sale_dispo_str\n";}
 
 $stmt="select count(*) from ".$vicidial_closer_log_table." where call_date >= '$query_date_BEGIN' and call_date <= '$query_date_END' and campaign_id in ('" . implode("','", array_map(array($link, 'real_escape_string'), $group)) . "') and status in ($sale_dispos);";
 $rslt=mysql_to_mysqli($stmt, $link);
-if ($DB) {$HTML_text.="$stmt\n";}
+if ($DB) {echo "$stmt\n";}
 $row=mysqli_fetch_row($rslt);
 
 $HTML_text.=_QXZ("STATUS",8)." "._QXZ("CUSTOMERS")."\n";
@@ -924,6 +1006,7 @@ $max_drops=1;
 $max_other=1;
 ###########################
 
+/*
 $stmt="select user,count(*) from ".$vicidial_xfer_log_table." where call_date >= '$query_date_BEGIN' and call_date <= '$query_date_END' and campaign_id in ('" . implode("','", array_map(array($link, 'real_escape_string'), $group)) . "') and user is not null $summary_user_xfer_log_SQL group by user;";
 
 
@@ -975,7 +1058,7 @@ while ($i < $users_to_print)
 		{$full_name[$i] = '               ';}
 
 	$DROP=0; $OTHER=0; $sales=0; 
-	$stmt="select vc.status,count(*) from ".$vicidial_xfer_log_table." vx, ".$vicidial_closer_log_table." vc where vx.call_date >= '$query_date_BEGIN' and vx.call_date <= '$query_date_END' and vc.call_date >= '$query_date_BEGIN' and vc.call_date <= '$query_date_END' and  vc.campaign_id in ('" . implode("','", array_map(array($link, 'real_escape_string'), $group)) . "') and vx.campaign_id in ('" . implode("','", array_map(array($link, 'real_escape_string'), $group)) . "') and vx.user='$userRAW[$i]' and vc.lead_id=vx.lead_id and vc.xfercallid=vx.xfercallid group by vc.status;";
+	$stmt="select vc.status,count(*) from ".$vicidial_xfer_log_table." vx, ".$vicidial_closer_log_table." vc where vx.call_date >= '$query_date_BEGIN' and vx.call_date <= '$query_date_END' and vx.front_uniqueid in ('" . implode("','", $valid_UIDs)."') and vc.call_date >= '$query_date_BEGIN' and vc.call_date <= '$query_date_END' and  vc.campaign_id in ('" . implode("','", array_map(array($link, 'real_escape_string'), $group)) . "') and vx.campaign_id in ('" . implode("','", array_map(array($link, 'real_escape_string'), $group)) . "') and vx.user='$userRAW[$i]' and vc.lead_id=vx.lead_id and vc.xfercallid=vx.xfercallid group by vc.status;";
 	if ($non_latin > 0) {$rslt=mysql_to_mysqli("SET NAMES 'UTF8'", $link);}
 	$rslt=mysql_to_mysqli($stmt, $link);
 	if ($DB) {$ASCII_text.="$stmt\n";}
@@ -983,6 +1066,8 @@ while ($i < $users_to_print)
 	$j=0;
 	while ($j < $lead_ids_to_print)
 		{
+		# $TOTcalls++;
+		# $USERcalls[$i]++;
 		$row=mysqli_fetch_row($rslt);
 		$recL=0;
 		if ( (preg_match("/\|$row[0]\|/", $sale_dispo_str)) and ($recL < 1) ) {$A1=$row[1]; $recL++; $sales=($sales + $row[1]);}
@@ -1033,7 +1118,84 @@ $TOTcalls =		sprintf("%6s", $TOTcalls);
 $TOTsales =		sprintf("%7s", $TOTsales);
 $totDROP =		sprintf("%7s", $totDROP);
 $totOTHER =		sprintf("%5s", $totOTHER);
+*/
+ksort($complete_fronter_stats); $i=0;
+foreach ($complete_fronter_stats as $fronter => $dispos)
+	{
 
+	$stmt="select full_name from vicidial_users where user='$fronter' $LOGadmin_viewable_groupsSQL;";
+	if ($non_latin > 0) {$rslt=mysql_to_mysqli("SET NAMES 'UTF8'", $link);}
+	$rslt=mysql_to_mysqli($stmt, $link);
+	if ($DB) {$ASCII_text.="$stmt\n";}
+	$names_to_print = mysqli_num_rows($rslt);
+	if ($names_to_print > 0)
+		{
+		$row=mysqli_fetch_row($rslt);
+		if ($non_latin < 1)
+			{
+			 $full_name =	sprintf("%-15s", $row[0]); while(strlen($full_name)>15) {$full_name = substr("$full_name", 0, -1);}	
+			}
+		else
+			{
+			 $full_name =	sprintf("%-45s", $row[0]); while(mb_strlen($full_name,'utf-8')>15) {$full_name = mb_substr("$full_name", 0, -1,'utf-8');}	
+			}
+		}
+	else
+		{$full_name = '               ';}
+
+	$DROP=0; $OTHER=0; $sales=0; $USERcalls=0;
+	foreach ($dispos as $dispo => $count)
+		{
+		$recL=0;
+		if ( (preg_match("/\|$dispo\|/", $sale_dispo_str)) and ($recL < 1) ) {$A1=$count; $recL++; $sales=($sales + $count);}
+		if ( ($dispo=='DROP' || $dispo=='TIMEOT') and ($recL < 1) ) {$DROP=($DROP+$count); $recL++;}
+		if ($recL < 1) {$OTHER=($count + $OTHER); $recL++;}
+		$USERcalls+=$count;
+		$TOTcalls+=$count;
+		}
+
+	$totDROP = ($totDROP + $DROP);
+	$totOTHER = ($totOTHER + $OTHER);
+	$TOTsales = ($TOTsales + $sales);
+
+	$Spct = MathZDC($sales, $USERcallsRAW[$i])*100;
+	$Spct = round($Spct, 2);
+	$Spct =	sprintf("%01.2f", $Spct);
+	
+	if ($sales>$max_success) {$max_success=$sales;}
+	if ($USERcalls>$max_xfers) {$max_xfers=$USERcalls;}
+	if ($Spct>$max_success_pct) {$max_success_pct=$Spct;}
+	if ($DROP>$max_drops) {$max_drops=$DROP;}
+	if ($OTHER>$max_other) {$max_other=$OTHER;}
+	$graph_stats[$i][0]="$fronter - $full_name";
+	$graph_stats[$i][1]=$USERcalls;
+	$graph_stats[$i][2]=$Spct;
+	$graph_stats[$i][3]=$sales;
+	$graph_stats[$i][4]=$DROP;
+	$graph_stats[$i][5]=$OTHER;
+
+	$USERcalls =	sprintf("%6s", $USERcalls);
+	$DROP =	sprintf("%7s", $DROP);
+	$OTHER =	sprintf("%5s", $OTHER);
+	$sales =	sprintf("%7s", $sales);
+	$Spct =	sprintf("%7s", $Spct);
+
+	$ASCII_text.="| ".sprintf("%-24s", substr("$fronter - $full_name", 0, 24))." | $USERcalls | $Spct% | $sales | $DROP | $OTHER |\n";
+	$CSV_fronter_lines.="\"$fronter - $full_name\",\"$USERcalls\",\"$Spct%\",\"$sales\",\"$DROP\",\"$OTHER\"\n";
+	$i++;
+	}
+
+
+$totSpct = MathZDC($TOTsales, $TOTcalls)*100;
+$totSpct = round($totSpct, 2);
+$totSpct =	sprintf("%01.2f", $totSpct);
+$totSpct =	sprintf("%7s", $totSpct);
+	
+$TOTagents =	sprintf("%6s", count($complete_fronter_stats));
+$TOTcalls =		sprintf("%6s", $TOTcalls);
+$TOTsales =		sprintf("%7s", $TOTsales);
+$totDROP =		sprintf("%7s", $totDROP);
+$totOTHER =		sprintf("%5s", $totOTHER);
 
 $stmt="select avg(queue_seconds) from ".$vicidial_closer_log_table." where call_date >= '$query_date_BEGIN' and call_date <= '$query_date_END' and campaign_id in ('" . implode("','", array_map(array($link, 'real_escape_string'), $group)) . "');";
 $rslt=mysql_to_mysqli($stmt, $link);
@@ -1400,7 +1562,7 @@ $CSV_closer_footer.="\""._QXZ("TOTAL CLOSERS").":  $TOTagents\",\"$TOTcalls\",\"
 		# $JS_text.="prepChart('$default_graph', $graph_id, $q, $dataset_name);\n";
 		$JS_text.="var main_ctx = document.getElementById(\"CanvasID".$graph_id."_".$q."\");\n";
 		$JS_text.="var GraphID".$graph_id."_".$q." = new Chart(main_ctx, {type: '$default_graph', $chart_options data: $dataset_name});\n";
-		echo "<!-- $JS_text //-->\n";
+		# echo "<!-- $JS_text //-->\n";
 	}
 
 	$graph_count=count($graph_array);
@@ -1408,6 +1570,7 @@ $CSV_closer_footer.="\""._QXZ("TOTAL CLOSERS").":  $TOTagents\",\"$TOTcalls\",\"
 	include("graphcanvas.inc");
 	$HTML_head.=$HTML_graph_head;
 	$GRAPH_text.=$graphCanvas;
+}
 }
 
 $ENDtime = date("U");
@@ -1421,7 +1584,7 @@ else
 	$HTML_text.=$ASCII_text;
 	}
 
-if ($DB) {$HTML_text.="\n"._QXZ("Run Time").": $RUNtime "._QXZ("seconds")."|$db_source\n";}
+if ($DB) {echo "\n"._QXZ("Run Time").": $RUNtime "._QXZ("seconds")."|$db_source\n";}
 
 $HTML_text.="</PRE>\n";
 
@@ -1480,7 +1643,6 @@ $rslt=mysql_to_mysqli($stmt, $link);
 
 exit;
 
-}
 
 
 ?>

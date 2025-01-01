@@ -1,7 +1,7 @@
 <?php 
 # AST_dial_log_report.php
 # 
-# Copyright (C) 2019  Joe Johnson, Matt Florell <vicidial@gmail.com>    LICENSE: AGPLv2
+# Copyright (C) 2024  Joe Johnson, Matt Florell <vicidial@gmail.com>    LICENSE: AGPLv2
 #
 # CHANGES
 # 130709-1346 - First build
@@ -13,6 +13,10 @@
 # 170821-2323 - Added HTML formatting
 # 170829-0040 - Added screen color settings
 # 191013-0818 - Fixes for PHP7
+# 210129-1010 - Added archive search option, issue #1222
+# 220303-0812 - Added allow_web_debug system setting
+# 220812-0953 - Added User Group report permissions checking
+# 240801-1130 - Code updates for PHP8 compatibility
 #
 
 $startMS = microtime();
@@ -25,6 +29,7 @@ $report_name='Dial Log Report';
 $PHP_AUTH_USER=$_SERVER['PHP_AUTH_USER'];
 $PHP_AUTH_PW=$_SERVER['PHP_AUTH_PW'];
 $PHP_SELF=$_SERVER['PHP_SELF'];
+$PHP_SELF = preg_replace('/\.php.*/i','.php',$PHP_SELF);
 if (isset($_GET["query_date"]))				{$query_date=$_GET["query_date"];}
 	elseif (isset($_POST["query_date"]))	{$query_date=$_POST["query_date"];}
 if (isset($_GET["query_date_D"]))			{$query_date_D=$_GET["query_date_D"];}
@@ -33,10 +38,8 @@ if (isset($_GET["query_date_T"]))			{$query_date_T=$_GET["query_date_T"];}
 	elseif (isset($_POST["query_date_T"]))	{$query_date_T=$_POST["query_date_T"];}
 if (isset($_GET["server_ip"]))				{$server_ip=$_GET["server_ip"];}
 	elseif (isset($_POST["server_ip"]))		{$server_ip=$_POST["server_ip"];}
-if (isset($_GET["hangup_cause"]))					{$hangup_cause=$_GET["hangup_cause"];}
-	elseif (isset($_POST["hangup_cause"]))			{$hangup_cause=$_POST["hangup_cause"];}
-if (isset($_GET["sip_hangup_cause"]))					{$sip_hangup_cause=$_GET["sip_hangup_cause"];}
-	elseif (isset($_POST["sip_hangup_cause"]))			{$sip_hangup_cause=$_POST["sip_hangup_cause"];}
+if (isset($_GET["sip_hangup_cause"]))			{$sip_hangup_cause=$_GET["sip_hangup_cause"];}
+	elseif (isset($_POST["sip_hangup_cause"]))	{$sip_hangup_cause=$_POST["sip_hangup_cause"];}
 if (isset($_GET["file_download"]))			{$file_download=$_GET["file_download"];}
 	elseif (isset($_POST["file_download"]))	{$file_download=$_POST["file_download"];}
 if (isset($_GET["lower_limit"]))			{$lower_limit=$_GET["lower_limit"];}
@@ -55,6 +58,10 @@ if (isset($_GET["SUBMIT"]))					{$SUBMIT=$_GET["SUBMIT"];}
 	elseif (isset($_POST["SUBMIT"]))		{$SUBMIT=$_POST["SUBMIT"];}
 if (isset($_GET["report_display_type"]))			{$report_display_type=$_GET["report_display_type"];}
 	elseif (isset($_POST["report_display_type"]))	{$report_display_type=$_POST["report_display_type"];}
+if (isset($_GET["search_archived_data"]))			{$search_archived_data=$_GET["search_archived_data"];}
+	elseif (isset($_POST["search_archived_data"]))	{$search_archived_data=$_POST["search_archived_data"];}
+
+$DB=preg_replace("/[^0-9a-zA-Z]/","",$DB);
 
 #### SIP response code directory
 $sip_response_directory = array(
@@ -131,6 +138,7 @@ $sip_response_directory = array(
 	603 => _QXZ("Decline"),
 	604 => _QXZ("Does Not Exist Anywhere"),
 	606 => _QXZ("Not Acceptable"),
+	999 => _QXZ("Internal Error"),
 );
 
 $master_sip_response_directory=array();
@@ -146,18 +154,17 @@ foreach ($sip_response_directory as $key => $val)
 $sip_responses_to_print=count($master_sip_response_directory);
 
 $NOW_DATE = date("Y-m-d");
-
 if (strlen($query_date_D) < 6) {$query_date_D = "00:00:00";}
 if (strlen($query_date_T) < 6) {$query_date_T = "23:59:59";}
 if (!isset($query_date)) {$query_date = $NOW_DATE;}
-if (!isset($server_ip)) {$server_ip = array();}
-if (!isset($sip_hangup_cause)) {$sip_hangup_cause = array();}
+if (!is_array($server_ip)) {$server_ip = array();}
+if (!is_array($sip_hangup_cause)) {$sip_hangup_cause = array();}
 
 #############################################
 ##### START SYSTEM_SETTINGS LOOKUP #####
-$stmt = "SELECT use_non_latin,outbound_autodial_active,slave_db_server,reports_use_slave_db,enable_languages,language_method FROM system_settings;";
+$stmt = "SELECT use_non_latin,outbound_autodial_active,slave_db_server,reports_use_slave_db,enable_languages,language_method,allow_web_debug FROM system_settings;";
 $rslt=mysql_to_mysqli($stmt, $link);
-if ($DB) {$MAIN.="$stmt\n";}
+#if ($DB) {$MAIN.="$stmt\n";}
 $qm_conf_ct = mysqli_num_rows($rslt);
 if ($qm_conf_ct > 0)
 	{
@@ -168,9 +175,28 @@ if ($qm_conf_ct > 0)
 	$reports_use_slave_db =			$row[3];
 	$SSenable_languages =			$row[4];
 	$SSlanguage_method =			$row[5];
+	$SSallow_web_debug =			$row[6];
 	}
+if ($SSallow_web_debug < 1) {$DB=0;}
 ##### END SETTINGS LOOKUP #####
 ###########################################
+
+$query_date = preg_replace('/[^- \:\_0-9a-zA-Z]/', '', $query_date);
+$query_date_D = preg_replace('/[^- \:\_0-9a-zA-Z]/', '', $query_date_D);
+$query_date_T = preg_replace('/[^- \:\_0-9a-zA-Z]/', '', $query_date_T);
+$SUBMIT = preg_replace('/[^-_0-9a-zA-Z]/', '', $SUBMIT);
+$submit = preg_replace('/[^-_0-9a-zA-Z]/', '', $submit);
+$report_display_type = preg_replace('/[^-_0-9a-zA-Z]/', '', $report_display_type);
+$file_download = preg_replace('/[^-_0-9a-zA-Z]/', '', $file_download);
+$lower_limit = preg_replace('/[^-_0-9a-zA-Z]/', '', $lower_limit);
+$upper_limit = preg_replace('/[^-_0-9a-zA-Z]/', '', $upper_limit);
+$lead_id = preg_replace('/[^-_0-9a-zA-Z]/', '', $lead_id);
+$extension = preg_replace('/[^-_0-9a-zA-Z]/', '', $extension);
+$search_archived_data = preg_replace('/[^-_0-9a-zA-Z]/', '', $search_archived_data);
+
+# Variables filtered further down in the code
+# $server_ip
+# $sip_hangup_cause
 
 if ($non_latin < 1)
 	{
@@ -179,13 +205,31 @@ if ($non_latin < 1)
 	}
 else
 	{
-	$PHP_AUTH_PW = preg_replace("/'|\"|\\\\|;/","",$PHP_AUTH_PW);
-	$PHP_AUTH_USER = preg_replace("/'|\"|\\\\|;/","",$PHP_AUTH_USER);
+	$PHP_AUTH_USER = preg_replace('/[^-_0-9\p{L}]/u', '', $PHP_AUTH_USER);
+	$PHP_AUTH_PW = preg_replace('/[^-_0-9\p{L}]/u', '', $PHP_AUTH_PW);
 	}
 
-$NOW_DATE = date("Y-m-d");
+### ARCHIVED DATA CHECK CONFIGURATION
+$archives_available="N";
+$log_tables_array=array("vicidial_dial_log");
+for ($t=0; $t<count($log_tables_array); $t++) 
+	{
+	$table_name=$log_tables_array[$t];
+	$archive_table_name=use_archive_table($table_name);
+	if ($archive_table_name!=$table_name) {$archives_available="Y";}
+	}
 
-$stmt="SELECT selected_language from vicidial_users where user='$PHP_AUTH_USER';";
+if ($search_archived_data) 
+	{
+	$vicidial_dial_log_table=use_archive_table("vicidial_dial_log");
+	}
+else
+	{
+	$vicidial_dial_log_table="vicidial_dial_log";
+	}
+#############
+
+$stmt="SELECT selected_language,user_group from vicidial_users where user='$PHP_AUTH_USER';";
 if ($DB) {echo "|$stmt|\n";}
 $rslt=mysql_to_mysqli($stmt, $link);
 $sl_ct = mysqli_num_rows($rslt);
@@ -193,6 +237,7 @@ if ($sl_ct > 0)
 	{
 	$row=mysqli_fetch_row($rslt);
 	$VUselected_language =		$row[0];
+	$LOGuser_group =			$row[1];
 	}
 
 $auth=0;
@@ -252,6 +297,33 @@ else
 	exit;
 	}
 
+$stmt="SELECT allowed_campaigns,allowed_reports,admin_viewable_groups,admin_viewable_call_times from vicidial_user_groups where user_group='$LOGuser_group';";
+if ($DB) {$HTML_text.="|$stmt|\n";}
+$rslt=mysql_to_mysqli($stmt, $link);
+$row=mysqli_fetch_row($rslt);
+$LOGallowed_campaigns =			$row[0];
+$LOGallowed_reports =			$row[1];
+$LOGadmin_viewable_groups =		$row[2];
+$LOGadmin_viewable_call_times =	$row[3];
+
+$LOGallowed_campaignsSQL='';
+$whereLOGallowed_campaignsSQL='';
+if ( (!preg_match('/\-ALL/i', $LOGallowed_campaigns)) )
+	{
+	$rawLOGallowed_campaignsSQL = preg_replace("/ -/",'',$LOGallowed_campaigns);
+	$rawLOGallowed_campaignsSQL = preg_replace("/ /","','",$rawLOGallowed_campaignsSQL);
+	$LOGallowed_campaignsSQL = "and campaign_id IN('$rawLOGallowed_campaignsSQL')";
+	$whereLOGallowed_campaignsSQL = "where campaign_id IN('$rawLOGallowed_campaignsSQL')";
+	}
+$regexLOGallowed_campaigns = " $LOGallowed_campaigns ";
+
+if ( (!preg_match("/$report_name/",$LOGallowed_reports)) and (!preg_match("/ALL REPORTS/",$LOGallowed_reports)) )
+	{
+    Header("WWW-Authenticate: Basic realm=\"CONTACT-CENTER-ADMIN\"");
+    Header("HTTP/1.0 401 Unauthorized");
+    echo "You are not allowed to view this report: |$PHP_AUTH_USER|$report_name|\n";
+    exit;
+	}
 
 ##### BEGIN log visit to the vicidial_report_log table #####
 $LOGip = getenv("REMOTE_ADDR");
@@ -261,9 +333,9 @@ $LOGserver_name = getenv("SERVER_NAME");
 $LOGserver_port = getenv("SERVER_PORT");
 $LOGrequest_uri = getenv("REQUEST_URI");
 $LOGhttp_referer = getenv("HTTP_REFERER");
-$LOGbrowser=preg_replace("/\'|\"|\\\\/","",$LOGbrowser);
-$LOGrequest_uri=preg_replace("/\'|\"|\\\\/","",$LOGrequest_uri);
-$LOGhttp_referer=preg_replace("/\'|\"|\\\\/","",$LOGhttp_referer);
+$LOGbrowser=preg_replace("/<|>|\'|\"|\\\\/","",$LOGbrowser);
+$LOGrequest_uri=preg_replace("/<|>|\'|\"|\\\\/","",$LOGrequest_uri);
+$LOGhttp_referer=preg_replace("/<|>|\'|\"|\\\\/","",$LOGhttp_referer);
 if (preg_match("/443/i",$LOGserver_port)) {$HTTPprotocol = 'https://';}
   else {$HTTPprotocol = 'http://';}
 if (($LOGserver_port == '80') or ($LOGserver_port == '443') ) {$LOGserver_port='';}
@@ -314,6 +386,7 @@ $server_ip_ct = count($server_ip);
 $i=0;
 while($i < $server_ip_ct)
 	{
+	$server_ip[$i] = preg_replace("/\<|\>|\'|\"|\\\\|;/", '', $server_ip[$i]);
 	$server_ip_string .= "$server_ip[$i]|";
 	$i++;
 	}
@@ -341,6 +414,7 @@ $server_ips_string='|';
 $server_ip_ct = count($server_ip);
 while($i < $server_ip_ct)
 	{
+	$server_ip[$i] = preg_replace("/\<|\>|\'|\"|\\\\|;/", '', $server_ip[$i]);
 	if ( (strlen($server_ip[$i]) > 0) and (preg_match("/\|$server_ip[$i]\|/",$server_ip_string)) )
 		{
 		$server_ips_string .= "$server_ip[$i]|";
@@ -369,6 +443,7 @@ $sip_hangup_cause_ct = count($sip_hangup_cause);
 $i=0;
 while($i < $sip_hangup_cause_ct)
 	{
+	$sip_hangup_cause[$i] = preg_replace("/\<|\>|\'|\"|\\\\|;/", '', $sip_hangup_cause[$i]);
 	$sip_hangup_cause_string .= "$sip_hangup_cause[$i]|";
 	$i++;
 	}
@@ -379,6 +454,7 @@ $i=0;
 $sip_hangup_cause_SQL="";
 while($i < $sip_hangup_cause_ct)
 	{
+	$sip_hangup_cause[$i] = preg_replace("/\<|\>|\'|\"|\\\\|;/", '', $sip_hangup_cause[$i]);
 	if ( (strlen($sip_hangup_cause[$i]) > 0) and (preg_match("/\|$sip_hangup_cause[$i]\|/",$sip_hangup_cause_string)) ) 
 		{
 		$sip_hangup_causes_string .= "$sip_hangup_cause[$i]|";
@@ -405,6 +481,9 @@ else
 $sip_hangup_cause_SQL = preg_replace('/,$/i', '',$sip_hangup_cause_SQL);
 if (strlen($sip_hangup_cause_SQL)>0) {$sip_hangup_cause_SQL="and sip_hangup_cause in ($sip_hangup_cause_SQL)";}
 
+$NWB = "<IMG SRC=\"help.png\" onClick=\"FillAndShowHelpDiv(event, '";
+$NWE = "')\" WIDTH=20 HEIGHT=20 BORDER=0 ALT=\"HELP\" ALIGN=TOP>";
+
 require("screen_colors.php");
 
 $HEADER.="<HTML>\n";
@@ -419,15 +498,19 @@ $HEADER.="-->\n";
 $HEADER.=" </STYLE>\n";
 $HEADER.="<script language=\"JavaScript\" src=\"calendar_db.js\"></script>\n";
 $HEADER.="<link rel=\"stylesheet\" href=\"calendar.css\">\n";
+$HEADER.="<link rel=\"stylesheet\" type=\"text/css\" href=\"vicidial_stylesheet.php\">\n";
+$HEADER.="<script language=\"JavaScript\" src=\"help.js\"></script>\n";
 $HEADER.="<link rel=\"stylesheet\" href=\"horizontalbargraph.css\">\n";
 $HEADER.="<link rel=\"stylesheet\" href=\"verticalbargraph.css\">\n";
 $HEADER.="<script language=\"JavaScript\" src=\"wz_jsgraphics.js\"></script>\n";
 $HEADER.="<script language=\"JavaScript\" src=\"line.js\"></script>\n";
 $HEADER.="<META HTTP-EQUIV=\"Content-Type\" CONTENT=\"text/html; charset=utf-8\">\n";
 $HEADER.="<TITLE>"._QXZ("$report_name")."</TITLE></HEAD><BODY BGCOLOR=WHITE marginheight=0 marginwidth=0 leftmargin=0 topmargin=0>\n";
+$HEADER.="<div id='HelpDisplayDiv' class='help_info' style='display:none;'></div>";
 
 $short_header=1;
 
+$MAIN.="<b>"._QXZ("$report_name")."</b> $NWB#dial_log_report$NWE\n";
 $MAIN.="<TABLE CELLPADDING=4 CELLSPACING=0><TR><TD>";
 $MAIN.="<FORM ACTION=\"$PHP_SELF\" METHOD=GET name=vicidial_report id=vicidial_report>\n";
 $MAIN.="<TABLE BORDER=0 cellspacing=5 cellpadding=5><TR><TD VALIGN=TOP align=center>\n";
@@ -485,28 +568,34 @@ while ($sip_responses_to_print > $o)
 $MAIN.="</SELECT>";
 $MAIN.="</TD>";
 
-$MAIN.="<TD ROWSPAN=2 VALIGN=middle align=center>\n";
+$MAIN.="<TD ROWSPAN=2 VALIGN=middle align=left>\n";
 $MAIN.=_QXZ("Display as:")."<BR>";
 $MAIN.="<select name='report_display_type'>";
 if ($report_display_type) {$MAIN.="<option value='$report_display_type' selected>"._QXZ("$report_display_type")."</option>";}
-$MAIN.="<option value='TEXT'>"._QXZ("TEXT")."</option><option value='HTML'>"._QXZ("HTML")."</option></select>\n<BR><BR>";
+$MAIN.="<option value='TEXT'>"._QXZ("TEXT")."</option><option value='HTML'>"._QXZ("HTML")."</option></select><BR><BR>\n";
+
+if ($archives_available=="Y") 
+	{
+	$MAIN.="<input type='checkbox' name='search_archived_data' value='checked' $search_archived_data>"._QXZ("Search archived data")."<BR><BR>\n";
+	}
+
 $MAIN.="<INPUT TYPE=submit NAME=SUBMIT VALUE='"._QXZ("SUBMIT")."'><BR/><BR/>\n";
 $MAIN.="</TD></TR></TABLE>\n";
 $TEXT.="<PRE><font size=2>\n";
 
 if ($SUBMIT && $query_date) {
-	$stmt="SELECT * From vicidial_dial_log where call_date>='$query_date $query_date_D' and call_date<='$query_date $query_date_T' $server_ip_SQL $sip_hangup_cause_SQL order by call_date asc";
+	$stmt="SELECT * From ".$vicidial_dial_log_table." where call_date>='$query_date $query_date_D' and call_date<='$query_date $query_date_T' $server_ip_SQL $sip_hangup_cause_SQL order by call_date asc";
 	$rslt=mysql_to_mysqli($stmt, $link);
 
 	if (!$lower_limit) {$lower_limit=1;}
 	if ($lower_limit+999>=mysqli_num_rows($rslt)) {$upper_limit=($lower_limit+mysqli_num_rows($rslt)%1000)-1;} else {$upper_limit=$lower_limit+999;}
-	$TEXT.="--- "._QXZ("DIAL LOG RECORDS FOR")." $query_date, $query_date_D "._QXZ("TO")." $query_date_T $server_rpt_string, $HC_rpt_string\n --- "._QXZ("RECORDS")." #$lower_limit-$upper_limit               <a href=\"$PHP_SELF?SUBMIT=$SUBMIT&DB=$DB&type=$type&query_date=$query_date&query_date_D=$query_date_D&query_date_T=$query_date_T$server_ipQS$sip_hangup_causeQS&lower_limit=$lower_limit&upper_limit=$upper_limit&file_download=1\">["._QXZ("DOWNLOAD")."]</a>\n";
+	$TEXT.="--- "._QXZ("DIAL LOG RECORDS FOR")." $query_date, $query_date_D "._QXZ("TO")." $query_date_T $server_rpt_string, $HC_rpt_string\n --- "._QXZ("RECORDS")." #$lower_limit-$upper_limit               <a href=\"$PHP_SELF?SUBMIT=$SUBMIT&DB=$DB&type=$type&query_date=$query_date&query_date_D=$query_date_D&query_date_T=$query_date_T$server_ipQS$sip_hangup_causeQS&lower_limit=$lower_limit&upper_limit=$upper_limit&file_download=1&search_archived_data=$search_archived_data\">["._QXZ("DOWNLOAD")."]</a>\n";
 	$CSV_text="\""._QXZ("CALLER CODE")."\",\""._QXZ("LEAD ID")."\",\""._QXZ("SERVER IP")."\",\""._QXZ("CALL DATE")."\",\""._QXZ("EXTENSION")."\",\""._QXZ("CHANNEL")."\",\""._QXZ("CONTEXT")."\",\""._QXZ("TIMEOUT")."\",\""._QXZ("OUTBOUND CID")."\",\""._QXZ("SIP HANGUP CAUSE")."\",\""._QXZ("UNIQUE ID")."\",\""._QXZ("SIP HANGUP REASON")."\"\n";
 
 	$HTML.="<BR><table border='0' cellpadding='3' cellspacing='1'>";
 	$HTML.="<tr bgcolor='#".$SSstd_row1_background."'>";
 	$HTML.="<th colspan='11'><font size='2'>"._QXZ("DIAL LOG RECORDS FOR")." $query_date, $query_date_D "._QXZ("TO")." $query_date_T $server_rpt_string, $HC_rpt_string, "._QXZ("RECORDS")." #$lower_limit-$upper_limit</font></th>";
-	$HTML.="<th><font size='2'><a href=\"$PHP_SELF?SUBMIT=$SUBMIT&DB=$DB&type=$type&query_date=$query_date&query_date_D=$query_date_D&query_date_T=$query_date_T$server_ipQS$sip_hangup_causeQS&lower_limit=$lower_limit&upper_limit=$upper_limit&file_download=1\">["._QXZ("DOWNLOAD")."]</a></font></th>";
+	$HTML.="<th><font size='2'><a href=\"$PHP_SELF?SUBMIT=$SUBMIT&DB=$DB&type=$type&query_date=$query_date&query_date_D=$query_date_D&query_date_T=$query_date_T$server_ipQS$sip_hangup_causeQS&lower_limit=$lower_limit&upper_limit=$upper_limit&file_download=1&search_archived_data=$search_archived_data\">["._QXZ("DOWNLOAD")."]</a></font></th>";
 	$HTML.="</tr>\n";
 	$HTML.="<tr bgcolor='#".$SSstd_row1_background."'>";
 	$HTML.="<th><font size='2'>"._QXZ("CALLER CODE")."</font></th>";

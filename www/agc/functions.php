@@ -4,7 +4,7 @@
 #
 # functions for agent scripts
 #
-# Copyright (C) 2020  Matt Florell <vicidial@gmail.com>    LICENSE: AGPLv2
+# Copyright (C) 2023  Matt Florell <vicidial@gmail.com>    LICENSE: AGPLv2
 #
 #
 # CHANGES:
@@ -49,9 +49,18 @@
 # 181004-1644 - Fix for defaut field in AREA type
 # 191013-1029 - Fixes for PHP7
 # 200406-1204 - Fix for gender default field population
+# 210211-0145 - Added SOURCESELECT field type, added basic Math equations to SCRIPT custom field types
+# 210211-1916 - Disable SCRIPT custom fields Math functions on older PHP versions
+# 210310-1322 - Added BUTTON field type
+# 210401-2132 - Fixed issue #1271, security_phrase field not populating in custom fields form
+# 210404-0902 - Added function to refresh a single field
+# 210603-1616 - Fix for specific custom field values with a slash in them
+# 210615-1032 - Default security fixes, CVE-2021-28854
+# 220921-1204 - Added more failed login logging in user_authorization function
+# 230518-1111 - Added in-group and campaign custom fields 1-5, for script/webform/dispo-call-url use
 #
 
-# $mysql_queries = 26
+# $mysql_queries = 28
 
 ##### BEGIN validate user login credentials, check for failed lock out #####
 function user_authorization($user,$pass,$user_option,$user_update,$bcrypt,$return_hash,$api_call,$source)
@@ -131,7 +140,7 @@ function user_authorization($user,$pass,$user_option,$user_update,$bcrypt,$retur
 
 			if ($failed_login_count < $LOCK_trigger_attempts)
 				{
-				$stmt="UPDATE vicidial_users set failed_login_count=(failed_login_count+1),last_ip='$ip' where user='$user';";
+				$stmt="UPDATE vicidial_users set failed_login_count=(failed_login_count+1),failed_login_attempts_today=(failed_login_attempts_today+1),failed_login_count_today=(failed_login_count_today+1),failed_last_ip_today='$ip',failed_last_type_today='01cBAD' where user='$user';";
 				$rslt=mysql_to_mysqli($stmt, $link);
 					if ($mel > 0) {mysql_error_logging($NOW_TIME,$link,$mel,$stmt,'05011',$user,$server_ip,$session_name,$one_mysql_log);}
 				}
@@ -139,18 +148,23 @@ function user_authorization($user,$pass,$user_option,$user_update,$bcrypt,$retur
 				{
 				if ($LOCK_over > $last_login_date)
 					{
-					$stmt="UPDATE vicidial_users set last_login_date=NOW(),failed_login_count=1,last_ip='$ip' where user='$user';";
+					$stmt="UPDATE vicidial_users set last_login_date=NOW(),failed_login_count=1,failed_last_ip_today='$ip',failed_login_attempts_today=(failed_login_attempts_today+1),failed_login_count_today=(failed_login_count_today+1),failed_last_type_today='02cBAD' where user='$user';";
 					$rslt=mysql_to_mysqli($stmt, $link);
 						if ($mel > 0) {mysql_error_logging($NOW_TIME,$link,$mel,$stmt,'05012',$user,$server_ip,$session_name,$one_mysql_log);}
 					}
 				else
-					{$auth_key='LOCK';}
+					{
+					$auth_key='LOCK';
+					$stmt="UPDATE vicidial_users set failed_login_attempts_today=(failed_login_attempts_today+1),failed_last_type_today='03cLOCK' where user='$user';";
+					$rslt=mysql_to_mysqli($stmt, $link);
+						if ($mel > 0) {mysql_error_logging($NOW_TIME,$link,$mel,$stmt,'05027',$user,$server_ip,$session_name,$one_mysql_log);}
+					}
 				}
 			}
 		if ($SSwebroot_writable > 0)
 			{
-			$fp = fopen ("./project_auth_entries.txt", "a");
-			fwrite ($fp, "AGENT|FAIL|$NOW_TIME|$user|$auth_key|$ip|$browser|\n");
+			$fp = fopen ("./project_auth_entries.txt", "w");
+			fwrite ($fp, "AGENT|FAIL|$NOW_TIME|\n");
 			fclose($fp);
 			}
 		}
@@ -315,6 +329,12 @@ function user_authorization($user,$pass,$user_option,$user_update,$bcrypt,$retur
 			if ( ($return_hash == '1') and ($SSpass_hash_enabled > 0) and (strlen($pass_hash) > 12) )
 				{$auth_key .= "|$pass_hash";}
 			}
+		else
+			{
+			$stmt="UPDATE vicidial_users set failed_login_attempts_today=(failed_login_attempts_today+1),failed_last_type_today='04c$auth_key' where user='$user';";
+			$rslt=mysql_to_mysqli($stmt, $link);
+				if ($mel > 0) {mysql_error_logging($NOW_TIME,$link,$mel,$stmt,'05028',$user,$server_ip,$session_name,$one_mysql_log);}
+			}
 		}
 	return $auth_key;
 	}
@@ -322,12 +342,12 @@ function user_authorization($user,$pass,$user_option,$user_update,$bcrypt,$retur
 
 
 ##### BEGIN custom_list_fields_values - gather values for display of custom list fields for a lead #####
-function custom_list_fields_values($lead_id,$list_id,$uniqueid,$user,$DB,$call_id,$did_id,$did_extension,$did_pattern,$did_description,$dialed_number,$dialed_label)
+function custom_list_fields_values($lead_id,$list_id,$uniqueid,$user,$DB,$call_id,$did_id,$did_extension,$did_pattern,$did_description,$dialed_number,$dialed_label,$only_field,$source_field,$source_field_value)
 	{
 	$STARTtime = date("U");
 	$TODAY = date("Y-m-d");
 	$NOW_TIME = date("Y-m-d H:i:s");
-
+	$MT[0]='';
 	$server_name = getenv("SERVER_NAME");
 	$server_port = getenv("SERVER_PORT");
 	$CL=':';
@@ -341,20 +361,25 @@ function custom_list_fields_values($lead_id,$list_id,$uniqueid,$user,$DB,$call_i
 	$custom_required_fields_radio='|';
 	$custom_required_fields_select='|';
 	$custom_required_fields_multi='|';
+	$custom_refresh_fields='|';
 
 	require("dbconnect_mysqli.php");
+
+	$php_version = phpversion();
+	if (!preg_match("/^4|^5|^6/",$php_version))
+		{require("Evaluator.php");}
 
 	$CFoutput='';
 	$stmt="SHOW TABLES LIKE \"custom_$list_id\";";
 	if ($non_latin > 0) {$rslt=mysql_to_mysqli("SET NAMES 'UTF8'", $link);}
-	if ($DB>0) {echo "$stmt";}
+	if ($DB>0) {$CFoutput .= "$stmt";}
 	$rslt=mysql_to_mysqli($stmt, $link);
 		if ($mel > 0) {mysql_error_logging($NOW_TIME,$link,$mel,$stmt,'05002',$user,$server_ip,$session_name,$one_mysql_log);}
 	$tablecount_to_print = mysqli_num_rows($rslt);
 	if ($tablecount_to_print > 0) 
 		{
 		$stmt="SELECT count(*) from custom_$list_id;";
-		if ($DB>0) {echo "$stmt";}
+		if ($DB>0) {$CFoutput .= "$stmt";}
 		$rslt=mysql_to_mysqli($stmt, $link);
 			if ($mel > 0) {mysql_error_logging($NOW_TIME,$link,$mel,$stmt,'05003',$user,$server_ip,$session_name,$one_mysql_log);}
 		$fieldscount_to_print = mysqli_num_rows($rslt);
@@ -362,9 +387,14 @@ function custom_list_fields_values($lead_id,$list_id,$uniqueid,$user,$DB,$call_i
 			{
 			$rowx=mysqli_fetch_row($rslt);
 			$custom_records_count =	$rowx[0];
-
+			
+			$only_fieldSQL='';
+			if (strlen($only_field) > 0)
+				{
+				$only_fieldSQL = "and field_label='$only_field'";
+				}
 			$select_SQL='';
-			$stmt="SELECT field_id,field_label,field_name,field_description,field_rank,field_help,field_type,field_options,field_size,field_max,field_default,field_cost,field_required,multi_position,name_position,field_order,field_duplicate from vicidial_lists_fields where list_id='$list_id' order by field_rank,field_order,field_label;";
+			$stmt="SELECT field_id,field_label,field_name,field_description,field_rank,field_help,field_type,field_options,field_size,field_max,field_default,field_cost,field_required,multi_position,name_position,field_order,field_duplicate from vicidial_lists_fields where list_id='$list_id' $only_fieldSQL order by field_rank,field_order,field_label;";
 			$rslt=mysql_to_mysqli($stmt, $link);
 				if ($mel > 0) {mysql_error_logging($NOW_TIME,$link,$mel,$stmt,'05004',$user,$server_ip,$session_name,$one_mysql_log);}
 			$fields_to_print = mysqli_num_rows($rslt);
@@ -436,7 +466,7 @@ function custom_list_fields_values($lead_id,$list_id,$uniqueid,$user,$DB,$call_i
 					}
 				if ( (!preg_match("/\|$A_field_label[$o]\|/i",$vicidial_list_fields)) and (!preg_match("/\|$A_master_field[$o]\|/i",$vicidial_list_fields)) )
 					{
-					if ( ($A_field_type[$o]=='DISPLAY') or ($A_field_type[$o]=='SCRIPT') or ($A_field_type[$o]=='SWITCH') )
+					if ( ($A_field_type[$o]=='DISPLAY') or ($A_field_type[$o]=='SCRIPT') or ($A_field_type[$o]=='SWITCH') or ($A_field_type[$o]=='BUTTON') )
 						{
 						$select_SQL .= "8,";
 						$A_field_select[$o]='----EMPTY----';
@@ -475,7 +505,7 @@ function custom_list_fields_values($lead_id,$list_id,$uniqueid,$user,$DB,$call_i
 				$stmt="SELECT $select_SQL FROM custom_$list_id where lead_id='$lead_id' LIMIT 1;";
 				$rslt=mysql_to_mysqli($stmt, $link);
 					if ($mel > 0) {mysql_error_logging($NOW_TIME,$link,$mel,$stmt,'05005',$user,$server_ip,$session_name,$one_mysql_log);}
-				if ($DB) {echo "$stmt\n";}
+				if ($DB) {$CFoutput .= "$stmt\n";}
 				$list_lead_ct = mysqli_num_rows($rslt);
 				}
 			if ($list_lead_ct > 0)
@@ -496,49 +526,61 @@ function custom_list_fields_values($lead_id,$list_id,$uniqueid,$user,$DB,$call_i
 				}
 			else
 				{
-				if ($DB) {echo _QXZ("ERROR: no custom data for this lead: ")."$lead_id\n";}
+				if ($DB) {$CFoutput .= _QXZ("ERROR: no custom data for this lead: ")."$lead_id\n";}
 				}
 			##### END grab the data from custom table for the lead_id
 
 
-			$CFoutput .= "<input type=hidden name=stage id=stage value=\"SUBMIT\">\n";
-			$CFoutput .= "<center><TABLE cellspacing=2 cellpadding=2>\n";
-			if ($fields_to_print < 1) 
-				{$CFoutput .= "<tr bgcolor=white align=center><td colspan=4><font size=1>"._QXZ("There are no custom fields for this list")."</td></tr>";}
+			if (strlen($only_field) < 1)
+				{
+				$CFoutput .= "<input type=hidden name=stage id=stage value=\"SUBMIT\">\n";
+				$CFoutput .= "<center><TABLE cellspacing=2 cellpadding=2>\n";
+				if ($fields_to_print < 1) 
+					{$CFoutput .= "<tr bgcolor=white align=center><td colspan=4><font size=1>"._QXZ("There are no custom fields for this list")."</td></tr>";}
+				}
 
 			$o=0;
 			$last_field_rank=0;
 			while ($fields_to_print > $o) 
 				{
 				$helpHTML='';
-				if (strlen($A_field_help[$o])>0)
+				if ( (strlen($A_field_help[$o])>0) and (strlen($only_field) < 1) )
 					{$helpHTML="&nbsp; <a href=\"javascript:open_help('HELP_$A_field_label[$o]','$A_field_help[$o]');\">"._QXZ("help")."+</a>";}
-				if ($last_field_rank=="$A_field_rank[$o]")
+				if ( ($last_field_rank=="$A_field_rank[$o]") and (strlen($only_field) < 1) )
 					{$CFoutput .= " &nbsp; &nbsp; &nbsp; &nbsp; ";}
 				else
 					{
-					$CFoutput .= "</td></tr>\n";
-					$CFoutput .= "<tr bgcolor=white><td align=";
-					if ( ($A_name_position[$o]=='TOP') or ($A_field_type[$o]=='SCRIPT') )
-						{$CFoutput .= "left colspan=2";}
-					else
-						{$CFoutput .= "right";}
-					$CFoutput .= "><font size=2>";
+					if (strlen($only_field) < 1)
+						{
+						$CFoutput .= "</td></tr>\n";
+						$CFoutput .= "<tr bgcolor=white><td align=";
+						if ( ($A_name_position[$o]=='TOP') or ($A_field_type[$o]=='SCRIPT') )
+							{$CFoutput .= "left colspan=2";}
+						else
+							{$CFoutput .= "right";}
+						$CFoutput .= "><font size=2>";
+						}
 					}
-				if ( ($A_field_type[$o]!='SCRIPT') and ($A_field_type[$o]!='HIDDEN') and ($A_field_type[$o]!='HIDEBLOB') )
+				if ( ($A_field_type[$o]!='SCRIPT') and ($A_field_type[$o]!='HIDDEN') and ($A_field_type[$o]!='HIDEBLOB') and (strlen($only_field) < 1) )
 					{$CFoutput .= "<B>$A_field_name[$o]</B>";}
-				if ( ($A_name_position[$o]=='TOP') or ($A_field_type[$o]=='SCRIPT') )
+				if ( ( ($A_name_position[$o]=='TOP') or ($A_field_type[$o]=='SCRIPT') ) and (strlen($only_field) < 1) )
 					{$CFoutput .= " &nbsp; <span style=\"position:static;\" id=P_HELP_$A_field_label[$o]></span><span style=\"position:static;background:white;\" id=HELP_$A_field_label[$o]> $helpHTML</span><BR>";}
 				else
 					{
-					if ($last_field_rank=="$A_field_rank[$o]")
-						{$CFoutput .= " &nbsp;";}
-					else
-						{$CFoutput .= "</td><td align=left><font size=2>";}
+					if (strlen($only_field) < 1)
+						{
+						if ($last_field_rank=="$A_field_rank[$o]")
+							{$CFoutput .= " &nbsp;";}
+						else
+							{$CFoutput .= "</td><td align=left><font size=2>";}
+						}
 					}
-				$field_HTML='';
+				if (strlen($only_field) < 1)
+					{
+					$field_HTML="<span id='field_content_$A_field_label[$o]'>";
+					}
 
-				if ($A_field_type[$o]=='SELECT')
+				if ( ($A_field_type[$o]=='SELECT') or ($A_field_type[$o]=='SOURCESELECT') )
 					{
 					$change_trigger='';
 					$default_field_flag=0;
@@ -547,30 +589,121 @@ function custom_list_fields_values($lead_id,$list_id,$uniqueid,$user,$DB,$call_i
 						$change_trigger="onchange=\"update_default_vd_select('$A_field_label[$o]');\"";
 						$default_field_flag++;
 						}
+					if (strlen($change_trigger) < 1)
+						{
+						$change_trigger="onchange=\"catchall_field_change('$A_field_label[$o]');\"";
+						}
 					$field_HTML .= "<select size=1 name=$A_field_label[$o] id=$A_field_label[$o] $change_trigger>\n";
 					}
 				if ($A_field_type[$o]=='MULTI')
 					{
 					$field_HTML .= "<select MULTIPLE size=$A_field_size[$o] name=$A_field_label[$o][] id=$A_field_label[$o][]>\n";
 					}
-				if ( ($A_field_type[$o]=='SELECT') or ($A_field_type[$o]=='MULTI') or ($A_field_type[$o]=='RADIO') or ($A_field_type[$o]=='CHECKBOX') or ($A_field_type[$o]=='SWITCH') )
+				if ( ($A_field_type[$o]=='SELECT') or ($A_field_type[$o]=='SOURCESELECT') or ($A_field_type[$o]=='MULTI') or ($A_field_type[$o]=='RADIO') or ($A_field_type[$o]=='CHECKBOX') or ($A_field_type[$o]=='SWITCH') )
 					{
 					$field_options_array = explode("\n",$A_field_options[$o]);
 					$field_options_count = count($field_options_array);
 					$te=0;   $te_printed=0;
+					if ($A_field_type[$o]=='SOURCESELECT')
+						{
+						$NEWfield_options_array = array();
+						$NEWfield_options_array[0] = '|no options';
+						if (!preg_match("/^source=>/i",$field_options_array[0]))
+							{echo _QXZ("ERROR: SOURCESELECT custom field is not defined properly");}
+						else
+							{
+							$sourceselect_field = preg_replace("/^source=>/i",'',trim($field_options_array[0]));
+							$sourceselect_value='';
+							$sourceselect_type='';
+							$sourceselect_default=0;
+							##### grab the source field data from main or custom table for the lead_id
+							if (preg_match("/\|$sourceselect_field\|/i",$vicidial_list_fields))
+								{
+								$sourceselect_default=1;
+								$sourceselect_type='TEXT';
+								if (preg_match("/^gender$/i",$sourceselect_field)) {$sourceselect_type='SELECT';}
+								$stmt="SELECT $sourceselect_field FROM vicidial_list where lead_id='$lead_id' LIMIT 1;";
+								}
+							else
+								{
+								$stmt="SELECT field_type FROM vicidial_lists_fields where list_id='$list_id' and field_label='$sourceselect_field' LIMIT 1;";
+								$rslt=mysql_to_mysqli($stmt, $link);
+									if ($mel > 0) {mysql_error_logging($NOW_TIME,$link,$mel,$stmt,'05XXX',$user,$server_ip,$session_name,$one_mysql_log);}
+								if ($DB) {echo "$stmt\n";}
+								$sourcetype_ct = mysqli_num_rows($rslt);
+								if ($sourcetype_ct > 0)
+									{
+									$row=mysqli_fetch_row($rslt);
+									$sourceselect_type = $row[0];
+									}
+								$stmt="SELECT $sourceselect_field FROM custom_$list_id where lead_id='$lead_id' LIMIT 1;";
+								}
+							if ( (strlen($only_field) > 0) and (strlen($source_field_value) > 0) and (preg_match("/^$sourceselect_field$/i",$source_field)) )
+								{
+								$sourceselect_value = $source_field_value;
+								if ($DB) {echo "Using form field value: |$only_field|$source_field_value|$source_field|\n";}
+								if ($sourceselect_value == '--BLANK--') {$sourceselect_value='';}
+								}
+							else
+								{
+								$rslt=mysql_to_mysqli($stmt, $link);
+									if ($mel > 0) {mysql_error_logging($NOW_TIME,$link,$mel,$stmt,'05XXX',$user,$server_ip,$session_name,$one_mysql_log);}
+								if ($DB) {echo "$stmt\n";}
+								$sourceselect_ct = mysqli_num_rows($rslt);
+								if ($sourceselect_ct > 0)
+									{
+									$row=mysqli_fetch_row($rslt);
+									$sourceselect_value = $row[0];
+									}
+								}
+
+							$custom_refresh_fields .= "$sourceselect_field $sourceselect_type $sourceselect_default $A_field_label[$o] $A_field_type[$o]|";
+							$temp_sourcematch = "value=>$sourceselect_value";
+							if ($DB) {echo "Starting SOURCESELECT: |$sourceselect_field|$sourceselect_value|$temp_sourcematch|   |$only_field|$source_field_value|$source_field|\n";}
+							$temp_matchfound=0;   $NFA=0;
+							while ( ($te < $field_options_count) and ($temp_matchfound < 2) )
+								{
+								if ($temp_matchfound == '1')
+									{
+									if (preg_match("/^option=>/i",trim($field_options_array[$te])))
+										{
+										$field_options_array[$te] = preg_replace("/^option=>/i",'',trim($field_options_array[$te]));
+										$NEWfield_options_array[$NFA] = trim($field_options_array[$te]);
+										$NFA++;
+										}
+									else
+										{$temp_matchfound=2;}
+									}
+								if (preg_match("/^$temp_sourcematch$/i",trim($field_options_array[$te])) )
+									{$temp_matchfound=1;}
+
+								if ($DB) {echo "SOURCESELECT 2: $te|$field_options_array[$te]($temp_sourcematch)|$temp_matchfound|\n";}
+
+								$te++;
+								}
+							if ($NFA < 1) {$NFA=1;}
+							$field_options_array = $NEWfield_options_array;
+							$field_options_count = $NFA;
+							if ($DB) {echo "SOURCESELECT 3: $te|$field_options_count|$field_options_array[0]|\n";}
+							}
+						}
+					$te=0;   $te_printed=0;
 					if ($DB > 0) {echo "DEBUG: |$A_field_id[$o]|$A_field_label[$o]|$A_field_name[$o]|$A_field_type[$o]|$A_field_options[$o]|$field_options_count|\n";}
 					while ($te < $field_options_count)
 						{
-						if (preg_match("/,/",$field_options_array[$te]))
+						if (preg_match("/,|\|/",$field_options_array[$te]))
 							{
 							$field_selected='';
-							$field_options_value_array = explode(",",$field_options_array[$te]);
-							if ($A_field_type[$o]=='SELECT')
+							if ($A_field_type[$o]=='SOURCESELECT')
+								{$field_options_value_array = explode('|',$field_options_array[$te]);}
+							else
+								{$field_options_value_array = explode(",",$field_options_array[$te]);}
+							if ( ($A_field_type[$o]=='SELECT') or ($A_field_type[$o]=='SOURCESELECT') )
 								{
 								if (strlen($A_field_value[$o]) > 0)
 									{
 									$temp_opt_val = $field_options_value_array[0];
-									if ( (preg_match("/^$temp_opt_val$/",$A_field_value[$o])) or (preg_match("/,$temp_opt_val$/",$A_field_value[$o])) or (preg_match("/$temp_opt_val,/",$A_field_value[$o])) )
+									if ( (preg_match("/^" . preg_quote($temp_opt_val, "/") . "$/",$A_field_value[$o])) or (preg_match("/," . preg_quote($temp_opt_val, "/") . "$/",$A_field_value[$o])) or (preg_match("/" . preg_quote($temp_opt_val, "/") . ",/",$A_field_value[$o])) )
 										{$field_selected = 'SELECTED';}
 									if ($default_field_flag > 0)
 										{$field_selected = '--A--gender'.$field_options_value_array[0].'SELECT--B--';}
@@ -588,7 +721,7 @@ function custom_list_fields_values($lead_id,$list_id,$uniqueid,$user,$DB,$call_i
 								if (strlen($A_field_value[$o]) > 0)
 									{
 									$temp_opt_val = $field_options_value_array[0];
-									if ( (preg_match("/^$temp_opt_val$/",$A_field_value[$o])) or (preg_match("/,$temp_opt_val$/",$A_field_value[$o])) or (preg_match("/$temp_opt_val,/",$A_field_value[$o])) )
+									if ( (preg_match("/^" . preg_quote($temp_opt_val, "/") . "$/",$A_field_value[$o])) or (preg_match("/," . preg_quote($temp_opt_val, "/") . "$/",$A_field_value[$o])) or (preg_match("/" . preg_quote($temp_opt_val, "/") . ",/",$A_field_value[$o])) )
 										{$field_selected = 'SELECTED';}
 									if ($DB > 0) {echo "DEBUG2: |$field_options_value_array[0]|$A_field_value[$o]|$field_selected|\n";}
 									}
@@ -606,7 +739,7 @@ function custom_list_fields_values($lead_id,$list_id,$uniqueid,$user,$DB,$call_i
 								if (strlen($A_field_value[$o]) > 0) 
 									{
 									$temp_opt_val = $field_options_value_array[0];
-									if ( (preg_match("/^$temp_opt_val$/",$A_field_value[$o])) or (preg_match("/,$temp_opt_val$/",$A_field_value[$o])) or (preg_match("/$temp_opt_val,/",$A_field_value[$o])) )
+									if ( (preg_match("/^" . preg_quote($temp_opt_val, "/") . "$/",$A_field_value[$o])) or (preg_match("/," . preg_quote($temp_opt_val, "/") . "$/",$A_field_value[$o])) or (preg_match("/" . preg_quote($temp_opt_val, "/") . ",/",$A_field_value[$o])) )
 										{$field_selected = 'CHECKED';}
 									if ($DB > 0) {echo "DEBUG3: |$temp_options_value|$A_field_value[$o]|$field_selected|\n";}
 									}
@@ -624,7 +757,7 @@ function custom_list_fields_values($lead_id,$list_id,$uniqueid,$user,$DB,$call_i
 								if ($A_multi_position[$o]=='VERTICAL')
 									{$field_HTML .= " &nbsp; ";}
 								$temp_opt_val = $field_options_value_array[0];
-								if (preg_match("/^$temp_opt_val$/",$list_id))
+								if (preg_match("/^" . preg_quote($temp_opt_val, "/") . "$/",$list_id))
 									{
 									$field_HTML .= "<button class='button_inactive' disabled onclick=\"nothing();\"> "._QXZ("$field_options_value_array[1]")." </button> \n";
 									}
@@ -641,7 +774,7 @@ function custom_list_fields_values($lead_id,$list_id,$uniqueid,$user,$DB,$call_i
 						$te++;
 						}
 					}
-				if ( ($A_field_type[$o]=='SELECT') or ($A_field_type[$o]=='MULTI') )
+				if ( ($A_field_type[$o]=='SELECT') or ($A_field_type[$o]=='SOURCESELECT') or ($A_field_type[$o]=='MULTI') )
 					{
 					$field_HTML .= "</select>\n";
 					}
@@ -649,7 +782,7 @@ function custom_list_fields_values($lead_id,$list_id,$uniqueid,$user,$DB,$call_i
 				# If options were printed for SELECT, MULTI, RADIO or CHECKBOX and required is set, mark as a required field
 				if ($te_printed > 0)
 					{
-					if ($A_field_type[$o]=='SELECT')
+					if ( ($A_field_type[$o]=='SELECT') or ($A_field_type[$o]=='SOURCESELECT') )
 						{
 						if ( ($A_field_required[$o] == 'Y') or ( ($A_field_required[$o] == 'INBOUND_ONLY') and (preg_match("/^Y\d\d\d\d\d\d\d/",$call_id)) ) )
 							{$custom_required_fields_select .= "$A_field_label[$o]|";}
@@ -680,7 +813,11 @@ function custom_list_fields_values($lead_id,$list_id,$uniqueid,$user,$DB,$call_i
 						$change_trigger="onchange=\"update_default_vd_field('$A_field_label[$o]');\"";
 						$default_field_flag++;
 						}
-					
+					if (strlen($change_trigger) < 1)
+						{
+						$change_trigger="onchange=\"catchall_field_change('$A_field_label[$o]');\"";
+						}
+
 					if ( ($duplicates_count > 0) and ( (preg_match("/\|$A_field_label[$o]\|/i",$duplicates_master_list)) or (preg_match("/\|$A_field_label[$o]\|/i",$duplicates_list)) ) )
 						{
 						$update_dup_fields='';
@@ -722,7 +859,7 @@ function custom_list_fields_values($lead_id,$list_id,$uniqueid,$user,$DB,$call_i
 
 					if ($A_field_default[$o]=='NULL') {$A_field_default[$o]='';}
 					if (strlen($A_field_value[$o]) < 1) {$A_field_value[$o] = $A_field_default[$o];}
-					$field_HTML .= "<input type=text size=$A_field_size[$o] maxlength=$A_field_max[$o] name=$A_field_label[$o] id=$A_field_label[$o] value=\""._QXZ("$A_field_value[$o]")."\" $change_trigger>\n";
+					$field_HTML .= "<input type=text size=$A_field_size[$o] maxlength=$A_field_max[$o] name=$A_field_label[$o] id=$A_field_label[$o] value=\"$A_field_value[$o]\" $change_trigger>\n";
 					if ( ($A_field_required[$o] == 'Y') or ( ($A_field_required[$o] == 'INBOUND_ONLY') and (preg_match("/^Y\d\d\d\d\d\d\d/",$call_id)) ) )
 						{$custom_required_fields .= "$A_field_label[$o]|";}
 					}
@@ -735,6 +872,10 @@ function custom_list_fields_values($lead_id,$list_id,$uniqueid,$user,$DB,$call_i
 						$change_trigger="onchange=\"update_default_vd_field('$A_field_label[$o]');\"";
 						$default_field_flag++;
 						}
+					if (strlen($change_trigger) < 1)
+						{
+						$change_trigger="onchange=\"catchall_field_change('$A_field_label[$o]');\"";
+						}
 					if ($A_field_default[$o]=='NULL') {$A_field_default[$o]='';}
 					if (strlen($A_field_value[$o]) < 1) {$A_field_value[$o] = $A_field_default[$o];}
 					$field_HTML .= "<textarea name=$A_field_label[$o] id=$A_field_label[$o] ROWS=$A_field_max[$o] COLS=$A_field_size[$o] $change_trigger>$A_field_value[$o]</textarea>";
@@ -745,6 +886,19 @@ function custom_list_fields_values($lead_id,$list_id,$uniqueid,$user,$DB,$call_i
 					{
 					if ($A_field_default[$o]=='NULL') {$A_field_default[$o]='';}
 					$field_HTML .= _QXZ("$A_field_default[$o]")."\n";
+					}
+				if ($A_field_type[$o]=='BUTTON')
+					{
+					$field_options_array = explode("\n",$A_field_options[$o]);
+					if (preg_match("/^SubmitRefresh/i",$field_options_array[0]))
+						{
+						if ($A_multi_position[$o]=='VERTICAL') 
+							{$field_HTML .= " &nbsp; ";}
+						if (strlen($A_field_default[$o]) < 1) {$A_field_default[$o] = _QXZ("Commit Changes and Refresh Form");}
+						$field_HTML .= "<button class='button_active' onclick=\"form_button_functions('SubmitRefresh');\"> "._QXZ("$A_field_default[$o]")." </button> \n";
+						if ($A_multi_position[$o]=='VERTICAL') 
+							{$field_HTML .= "<BR>\n";}
+						}
 					}
 				if ($A_field_type[$o]=='READONLY')
 					{
@@ -782,6 +936,7 @@ function custom_list_fields_values($lead_id,$list_id,$uniqueid,$user,$DB,$call_i
 					}
 				if ($A_field_type[$o]=='TIME') 
 					{
+					if ( ($A_field_default[$o] == 'NULL') or (strlen($A_field_default[$o]) < 1) ) {$A_field_default[$o]=0;}
 					$minute_diff = $A_field_default[$o];
 					$default_time = date("H:i:s", mktime(date("H"),date("i")+$minute_diff,date("s"),date("m"),date("d"),date("Y")));
 					$default_hour = date("H", mktime(date("H"),date("i")+$minute_diff,date("s"),date("m"),date("d"),date("Y")));
@@ -838,7 +993,12 @@ function custom_list_fields_values($lead_id,$list_id,$uniqueid,$user,$DB,$call_i
 					$field_HTML .= "</SELECT>";
 					}
 
-				if ( ($A_name_position[$o]=='LEFT') and ($A_field_type[$o]!='SCRIPT') and ($A_field_type[$o]!='HIDDEN') and ($A_field_type[$o]!='HIDEBLOB') )
+				if (strlen($only_field) < 1)
+					{
+					$field_HTML .= "</span>";
+					}
+
+				if ( ($A_name_position[$o]=='LEFT') and ($A_field_type[$o]!='SCRIPT') and ($A_field_type[$o]!='HIDDEN') and ($A_field_type[$o]!='HIDEBLOB') and (strlen($only_field) < 1) )
 					{
 					$CFoutput .= " $field_HTML <span style=\"position:static;\" id=P_HELP_$A_field_label[$o]></span><span style=\"position:static;background:white;\" id=HELP_$A_field_label[$o]> $helpHTML</span>";
 					}
@@ -850,7 +1010,17 @@ function custom_list_fields_values($lead_id,$list_id,$uniqueid,$user,$DB,$call_i
 				$last_field_rank=$A_field_rank[$o];
 				$o++;
 				}
-			$CFoutput .= "</td></tr></table>\n";
+
+			$CFoutput_prefix='';
+			if (strlen($only_field) < 1)
+				{
+				$CFoutput .= "</td></tr></table>\n";
+				$CFoutput_prefix .= "	<script language=\"Javascript\">\n";
+				$CFoutput_prefix .= "   var custom_refresh_fields = '$custom_refresh_fields';\n";
+				$CFoutput_prefix .= "	</script>\n";
+				}
+
+			$CFoutput = "$CFoutput_prefix$CFoutput";
 			}
 		else
 			{$CFoutput .= _QXZ("ERROR: no custom list fields")."\n";}
@@ -861,12 +1031,12 @@ function custom_list_fields_values($lead_id,$list_id,$uniqueid,$user,$DB,$call_i
 
 	##### BEGIN parsing for vicidial variables #####
 	$NOTESout='';
-	if (preg_match("/--A--|--U--/",$CFoutput))
+	if (preg_match("/--A--|--U--|--M--/",$CFoutput))
 		{
 		if ( (preg_match('/--A--user_custom_|--U--user_custom_/i',$CFoutput)) or (preg_match('/--A--fullname|--U--fullname/i',$CFoutput)) )
 			{
 			$stmt = "select custom_one,custom_two,custom_three,custom_four,custom_five,full_name from vicidial_users where user='$user';";
-			if ($DB) {echo "$stmt\n";}
+			if ($DB) {$CFoutput .= "$stmt\n";}
 			$rslt=mysql_to_mysqli($stmt, $link);
 				if ($mel > 0) {mysql_error_logging($NOW_TIME,$link,$mel,$stmt,'05006',$user,$server_ip,$session_name,$one_mysql_log);}
 			$VUC_ct = mysqli_num_rows($rslt);
@@ -891,7 +1061,7 @@ function custom_list_fields_values($lead_id,$list_id,$uniqueid,$user,$DB,$call_i
 
 				### find the dialed number and label for this call
 				$stmt = "SELECT phone_number,alt_dial from vicidial_log where uniqueid='$uniqueid';";
-				if ($DB) {echo "$stmt\n";}
+				if ($DB) {$CFoutput .= "$stmt\n";}
 				$rslt=mysql_to_mysqli($stmt, $link);
 					if ($mel > 0) {mysql_error_logging($NOW_TIME,$link,$mel,$stmt,'05008',$user,$server_ip,$session_name,$one_mysql_log);}
 				$vl_dialed_ct = mysqli_num_rows($rslt);
@@ -1083,7 +1253,7 @@ function custom_list_fields_values($lead_id,$list_id,$uniqueid,$user,$DB,$call_i
 		$stmt="SELECT lead_id,entry_date,modify_date,status,user,vendor_lead_code,source_id,list_id,gmt_offset_now,called_since_last_reset,phone_code,phone_number,title,first_name,middle_initial,last_name,address1,address2,address3,city,state,province,postal_code,country_code,gender,date_of_birth,alt_phone,email,security_phrase,comments,called_count,last_local_call_time,rank,owner FROM vicidial_list where lead_id='$lead_id' LIMIT 1;";
 		$rslt=mysql_to_mysqli($stmt, $link);
 			if ($mel > 0) {mysql_error_logging($NOW_TIME,$link,$mel,$stmt,'05007',$user,$server_ip,$session_name,$one_mysql_log);}
-		if ($DB) {echo "$stmt\n";}
+		if ($DB) {$CFoutput .= "$stmt\n";}
 		$list_lead_ct = mysqli_num_rows($rslt);
 		if ($list_lead_ct > 0)
 			{
@@ -1114,7 +1284,7 @@ function custom_list_fields_values($lead_id,$list_id,$uniqueid,$user,$DB,$call_i
 			$date_of_birth		= trim($row[25]);
 			$alt_phone			= trim($row[26]);
 			$email				= trim($row[27]);
-			$security			= trim($row[28]);
+			$security_phrase	= trim($row[28]);
 			$comments			= trim($row[29]);
 			$called_count		= trim($row[30]);
 			$rank				= trim($row[32]);
@@ -1123,11 +1293,9 @@ function custom_list_fields_values($lead_id,$list_id,$uniqueid,$user,$DB,$call_i
 
 		if (preg_match('/--A--list_|--U--list_/i',$CFoutput))
 			{
-			$rslt=mysql_to_mysqli($stmt, $link);
-			$row=mysqli_fetch_row($rslt);
 			### find the dialed number and label for this call
 			$stmt="SELECT list_name,list_description from vicidial_lists where list_id='$list_id';";
-			if ($DB) {echo "$stmt\n";}
+			if ($DB) {$CFoutput .= "$stmt\n";}
 			$rslt=mysql_to_mysqli($stmt, $link);
 				if ($mel > 0) {mysql_error_logging($NOW_TIME,$link,$mel,$stmt,'05021',$user,$server_ip,$session_name,$one_mysql_log);}
 			$li_ct = mysqli_num_rows($rslt);
@@ -1141,11 +1309,9 @@ function custom_list_fields_values($lead_id,$list_id,$uniqueid,$user,$DB,$call_i
 
 		if (preg_match('/--A--did_|--U--did_/i',$CFoutput))
 			{
-			$rslt=mysql_to_mysqli($stmt, $link);
-			$row=mysqli_fetch_row($rslt);
 			### find the did_carrier_description for this call
 			$stmt="SELECT did_carrier_description,custom_one,custom_two,custom_three,custom_four,custom_five from vicidial_inbound_dids where did_id='$did_id';";
-			if ($DB) {echo "$stmt\n";}
+			if ($DB) {$CFoutput .= "$stmt\n";}
 			$rslt=mysql_to_mysqli($stmt, $link);
 				if ($mel > 0) {mysql_error_logging($NOW_TIME,$link,$mel,$stmt,'05022',$user,$server_ip,$session_name,$one_mysql_log);}
 			$dcd_ct = mysqli_num_rows($rslt);
@@ -1158,6 +1324,37 @@ function custom_list_fields_values($lead_id,$list_id,$uniqueid,$user,$DB,$call_i
 				$did_custom_three =			$row[3];
 				$did_custom_four =			$row[4];
 				$did_custom_five =			$row[5];
+				}
+			}
+
+		if (preg_match('/--A--ig_custom_|--U--ig_custom_/i',$CFoutput))
+			{
+			### find the in-group values for this call
+			$stmt="SELECT campaign_id from vicidial_closer_log where uniqueid='$uniqueid' order by call_date desc limit 1;";
+			if ($DB) {$CFoutput .= "$stmt\n";}
+			$rslt=mysql_to_mysqli($stmt, $link);
+				if ($mel > 0) {mysql_error_logging($NOW_TIME,$link,$mel,$stmt,'05XXX',$user,$server_ip,$session_name,$one_mysql_log);}
+			$dcd_ct = mysqli_num_rows($rslt);
+			if ($dcd_ct > 0)
+				{
+				$row=mysqli_fetch_row($rslt);
+				$temp_group_id =	$row[0];
+				}
+
+			### find the in-group values for this call
+			$stmt="SELECT custom_one,custom_two,custom_three,custom_four,custom_five from vicidial_inbound_groups where group_id='$temp_group_id';";
+			if ($DB) {$CFoutput .= "$stmt\n";}
+			$rslt=mysql_to_mysqli($stmt, $link);
+				if ($mel > 0) {mysql_error_logging($NOW_TIME,$link,$mel,$stmt,'05XXX',$user,$server_ip,$session_name,$one_mysql_log);}
+			$dcd_ct = mysqli_num_rows($rslt);
+			if ($dcd_ct > 0)
+				{
+				$row=mysqli_fetch_row($rslt);
+				$ig_custom_one =			$row[0];
+				$ig_custom_two =			$row[1];
+				$ig_custom_three =			$row[2];
+				$ig_custom_four =			$row[3];
+				$ig_custom_five =			$row[4];
 				}
 			}
 
@@ -1204,6 +1401,11 @@ function custom_list_fields_values($lead_id,$list_id,$uniqueid,$user,$DB,$call_i
 		$CFoutput = preg_replace('/--U--user_custom_three--V--/i',urlencode($user_custom_three),$CFoutput);
 		$CFoutput = preg_replace('/--U--user_custom_four--V--/i',urlencode($user_custom_four),$CFoutput);
 		$CFoutput = preg_replace('/--U--user_custom_five--V--/i',urlencode($user_custom_five),$CFoutput);
+		$CFoutput = preg_replace('/--U--camp_custom_one--V--/i',urlencode($camp_custom_one),$CFoutput);
+		$CFoutput = preg_replace('/--U--camp_custom_two--V--/i',urlencode($camp_custom_two),$CFoutput);
+		$CFoutput = preg_replace('/--U--camp_custom_three--V--/i',urlencode($camp_custom_three),$CFoutput);
+		$CFoutput = preg_replace('/--U--camp_custom_four--V--/i',urlencode($camp_custom_four),$CFoutput);
+		$CFoutput = preg_replace('/--U--camp_custom_five--V--/i',urlencode($camp_custom_five),$CFoutput);
 		$CFoutput = preg_replace('/--U--preset_number_a--V--/i',urlencode($preset_number_a),$CFoutput);
 		$CFoutput = preg_replace('/--U--preset_number_b--V--/i',urlencode($preset_number_b),$CFoutput);
 		$CFoutput = preg_replace('/--U--preset_number_c--V--/i',urlencode($preset_number_c),$CFoutput);
@@ -1225,6 +1427,11 @@ function custom_list_fields_values($lead_id,$list_id,$uniqueid,$user,$DB,$call_i
 		$CFoutput = preg_replace('/--U--did_custom_three--V--/i',urlencode($did_custom_three),$CFoutput);
 		$CFoutput = preg_replace('/--U--did_custom_four--V--/i',urlencode($did_custom_four),$CFoutput);
 		$CFoutput = preg_replace('/--U--did_custom_five--V--/i',urlencode($did_custom_five),$CFoutput);
+		$CFoutput = preg_replace('/--U--ig_custom_one--V--/i',urlencode($ig_custom_one),$CFoutput);
+		$CFoutput = preg_replace('/--U--ig_custom_two--V--/i',urlencode($ig_custom_two),$CFoutput);
+		$CFoutput = preg_replace('/--U--ig_custom_three--V--/i',urlencode($ig_custom_three),$CFoutput);
+		$CFoutput = preg_replace('/--U--ig_custom_four--V--/i',urlencode($ig_custom_four),$CFoutput);
+		$CFoutput = preg_replace('/--U--ig_custom_five--V--/i',urlencode($ig_custom_five),$CFoutput);
 		$CFoutput = preg_replace('/--U--did_carrier_description--V--/i',urlencode($did_carrier_description),$CFoutput);
 		$CFoutput = preg_replace('/--U--list_name--V--/i',urlencode($list_name),$CFoutput);
 		$CFoutput = preg_replace('/--U--list_description--V--/i',urlencode($list_description),$CFoutput);
@@ -1272,6 +1479,11 @@ function custom_list_fields_values($lead_id,$list_id,$uniqueid,$user,$DB,$call_i
 		$CFoutput = preg_replace('/--A--user_custom_three--B--/i',"$user_custom_three",$CFoutput);
 		$CFoutput = preg_replace('/--A--user_custom_four--B--/i',"$user_custom_four",$CFoutput);
 		$CFoutput = preg_replace('/--A--user_custom_five--B--/i',"$user_custom_five",$CFoutput);
+		$CFoutput = preg_replace('/--A--camp_custom_one--B--/i',"$camp_custom_one",$CFoutput);
+		$CFoutput = preg_replace('/--A--camp_custom_two--B--/i',"$camp_custom_two",$CFoutput);
+		$CFoutput = preg_replace('/--A--camp_custom_three--B--/i',"$camp_custom_three",$CFoutput);
+		$CFoutput = preg_replace('/--A--camp_custom_four--B--/i',"$camp_custom_four",$CFoutput);
+		$CFoutput = preg_replace('/--A--camp_custom_five--B--/i',"$camp_custom_five",$CFoutput);
 		$CFoutput = preg_replace('/--A--preset_number_a--B--/i',"$preset_number_a",$CFoutput);
 		$CFoutput = preg_replace('/--A--preset_number_b--B--/i',"$preset_number_b",$CFoutput);
 		$CFoutput = preg_replace('/--A--preset_number_c--B--/i',"$preset_number_c",$CFoutput);
@@ -1293,6 +1505,11 @@ function custom_list_fields_values($lead_id,$list_id,$uniqueid,$user,$DB,$call_i
 		$CFoutput = preg_replace('/--A--did_custom_three--B--/i',"$did_custom_three",$CFoutput);
 		$CFoutput = preg_replace('/--A--did_custom_four--B--/i',"$did_custom_four",$CFoutput);
 		$CFoutput = preg_replace('/--A--did_custom_five--B--/i',"$did_custom_five",$CFoutput);
+		$CFoutput = preg_replace('/--A--ig_custom_one--B--/i',"$ig_custom_one",$CFoutput);
+		$CFoutput = preg_replace('/--A--ig_custom_two--B--/i',"$ig_custom_two",$CFoutput);
+		$CFoutput = preg_replace('/--A--ig_custom_three--B--/i',"$ig_custom_three",$CFoutput);
+		$CFoutput = preg_replace('/--A--ig_custom_four--B--/i',"$ig_custom_four",$CFoutput);
+		$CFoutput = preg_replace('/--A--ig_custom_five--B--/i',"$ig_custom_five",$CFoutput);
 		$CFoutput = preg_replace('/--A--did_carrier_description--B--/i',"$did_carrier_description",$CFoutput);
 		$CFoutput = preg_replace('/--A--list_name--B--/i',"$list_name",$CFoutput);
 		$CFoutput = preg_replace('/--A--list_description--B--/i',"$list_description",$CFoutput);
@@ -1316,14 +1533,43 @@ function custom_list_fields_values($lead_id,$list_id,$uniqueid,$user,$DB,$call_i
 			$o++;
 			}
 
-		if ($DB > 0) {echo "$CFoutput<BR>\n";}
+		# check for Math formulas
+		if ( (preg_match("/--M--/",$CFoutput)) or (preg_match("/--N--/",$CFoutput)) )
+			{
+			if (!preg_match("/^4|^5|^6/",$php_version))
+				{
+				$DBM=0;
+				$evaluator = new \Matex\Evaluator();
+				preg_match_all("/--M--(.*?)--N--/", $CFoutput, $MathMatch);
+				$MathMatch_count = count($MathMatch[0]);
+				$Mct=0;
+				while ($MathMatch_count > $Mct)
+					{
+					$temp_MathEq = $MathMatch[0][$Mct];
+					$temp_MathEq = preg_replace("/--M--|--N--/",'',$temp_MathEq);
+					$temp_MathEq_orig = $temp_MathEq;
+					$temp_MathEq = preg_replace("/[^- \+\-\*\^\.\(\)\%\/0-9]/",'',$temp_MathEq);
+
+					$temp_MathResult = $evaluator->execute($temp_MathEq);
+					if ($DBM > 0) {$CFoutput .= "MATH DEBUG: $Mct|$temp_MathEq|$temp_MathResult|\n";}
+					$CFoutput = str_replace("--M--$temp_MathEq_orig--N--","$temp_MathResult",$CFoutput);
+
+					$Mct++;
+					}
+				}
+			}
+
+		if ($DB > 0) {$CFoutput .= "$CFoutput<BR>\n";}
 		}
 	##### END parsing for vicidial variables #####
-	echo "<input type=hidden name=custom_required id=custom_required value=\"$custom_required_fields\">\n";
-	echo "<input type=hidden name=custom_required_check id=custom_required_check value=\"$custom_required_fields_check\">\n";
-	echo "<input type=hidden name=custom_required_radio id=custom_required_radio value=\"$custom_required_fields_radio\">\n";
-	echo "<input type=hidden name=custom_required_select id=custom_required_select value=\"$custom_required_fields_select\">\n";
-	echo "<input type=hidden name=custom_required_multi id=custom_required_multi value=\"$custom_required_fields_multi\">\n";
+	if (strlen($only_field) < 1)
+		{
+		$CFoutput .= "<input type=hidden name=custom_required id=custom_required value=\"$custom_required_fields\">\n";
+		$CFoutput .= "<input type=hidden name=custom_required_check id=custom_required_check value=\"$custom_required_fields_check\">\n";
+		$CFoutput .= "<input type=hidden name=custom_required_radio id=custom_required_radio value=\"$custom_required_fields_radio\">\n";
+		$CFoutput .= "<input type=hidden name=custom_required_select id=custom_required_select value=\"$custom_required_fields_select\">\n";
+		$CFoutput .= "<input type=hidden name=custom_required_multi id=custom_required_multi value=\"$custom_required_fields_multi\">\n";
+		}
 
 	return $CFoutput;
 	}
@@ -2504,8 +2750,9 @@ function mysql_error_logging($NOW_TIME,$link,$mel,$stmt,$query_id,$user,$server_
 		if ( ($errno > 0) or ($mel > 1) or ($one_mysql_log > 0) )
 			{
 			$error = mysqli_error($link);
-			$efp = fopen ("./vicidial_mysqli_errors.txt", "a");
-			fwrite ($efp, "$NOW_TIME|vdc_db_query|$query_id|$errno|$error|$stmt|$user|$server_ip|$session_name|\n");
+			$efp = fopen ("./vicidial_mysqli_errors.txt", "w");
+		#	fwrite ($efp, "$NOW_TIME|vdc_db_query|$query_id|$errno|$error|$stmt|$user|$server_ip|$session_name|\n");
+			fwrite ($efp, "$NOW_TIME|vdc_db_query|$query_id|\n");
 			fclose($efp);
 			}
 		}

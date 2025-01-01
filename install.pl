@@ -2,7 +2,7 @@
 
 # install.pl version 2.14
 #
-# Copyright (C) 2019  Matt Florell <vicidial@gmail.com>    LICENSE: AGPLv2
+# Copyright (C) 2024  Matt Florell <vicidial@gmail.com>    LICENSE: AGPLv2
 #
 
 # CHANGES
@@ -44,6 +44,14 @@
 # 160101-0907 - Changed ip_relay code to look for installed package
 # 170915-1458 - Added Asterisk 13 compability pieces
 # 190530-1511 - Added 'S' keepalive option
+# 210813-0925 - Added Asteirsk 16 option
+# 210827-0926 - Added PJSIP default conf files to Asterisk 16 install
+# 220827-2239 - Added VERM web directory
+# 220829-1434 - Added 'C' keepalive option
+# 221228-2049 - Added KhompEnabled option
+# 230117-2220 - Added --khomp-enable CLI flag
+# 230508-0809 - Added Asterisk 18 compatibility
+# 240704-0830 - Added coldstorage DB entries
 #
 
 ############################################
@@ -78,10 +86,16 @@ $VARDB_pass =	'1234';
 $VARDB_custom_user =	'custom';
 $VARDB_custom_pass =	'custom1234';
 $VARDB_port =	'3306';
+# default cold storage logs database server variables: 
+$VARCS_server =	'';
+$VARCS_database =	'asterisk_coldstorage';
+$VARCS_user =	'coldstorage';
+$VARCS_pass =	'cs1234';
+$VARCS_port =	'3306';
 # default keepalive processes: 
 $VARactive_keepalives =		'1234568';
 # default Asterisk version: 
-$VARasterisk_version =		'1.4';
+$VARasterisk_version =		'13.X';
 # default recording FTP archive variables:
 $VARFTP_host = '10.0.0.4';
 $VARFTP_user = 'cron';
@@ -103,6 +117,8 @@ $VARfastagi_log_max_spare_servers = '8';
 $VARfastagi_log_max_requests =	'1000';
 $VARfastagi_log_checkfordead =	'30';
 $VARfastagi_log_checkforwait =	'60';
+# default for 3rd-party add-ons
+$VARKhompEnabled =		'0';
 
 ############################################
 
@@ -120,6 +136,11 @@ $CLIDB_pass=0;
 $CLIDB_custom_user=0;
 $CLIDB_custom_pass=0;
 $CLIDB_port=0;
+$CLICS_server=0;
+$CLICS_database=0;
+$CLICS_user=0;
+$CLICS_pass=0;
+$CLICS_port=0;
 $CLIVARactive_keepalives=0;
 $CLIVARasterisk_version=0;
 $CLIFTP_host=0;
@@ -195,6 +216,11 @@ if (length($ARGV[0])>1)
 		print "  [--DB_custom_user=custom] = define database custom user login at runtime\n";
 		print "  [--DB_custom_pass=custom1234] = define database custom user password at runtime\n";
 		print "  [--DB_port=3306] = define database connection port at runtime\n";
+		print "  [--CS_server=x] = define cold-storage database server IP address at runtime\n";
+		print "  [--CS_database=asterisk_coldstorage] = define cold-storage database name at runtime\n";
+		print "  [--CS_user=cron] = define cold-storage database user login at runtime\n";
+		print "  [--CS_pass=1234] = define cold-storage database user password at runtime\n";
+		print "  [--CS_port=3306] = define cold-storage database connection port at runtime\n";
 		print "  [--active_keepalives=123456] = define processes to keepalive\n";
 		print "     X - NO KEEPALIVE PROCESSES (use only if you want none to be keepalive)\n";
 		print "     1 - AST_update\n";
@@ -206,8 +232,9 @@ if (length($ARGV[0])>1)
 		print "     7 - AST_VDauto_dial_FILL (only for multi-server, this must only be on one server)\n";
 		print "     8 - ip_relay (used for blind agent monitoring)\n";
 		print "     9 - Timeclock auto-logout\n";
+		print "     C - ConfBridge process, (see the ConfBridge documentation for more info)\n";
 		print "     E - Email processor, (If multi-server system, this must only be on one server)\n";
-		print "     S - SIP Logger (Patched Asterisk 13 required)\n";
+		print "     S - SIP Logger (Patched Asterisk 13 or higher required)\n";
 		print "  [--asterisk_version] = set the asterisk version you want to install for\n";
 		print "  [--copy_sample_conf_files] = copies the sample conf files to /etc/asterisk/\n";
 		print "  [--web-languages] = copy language translations (WARNING! may not work on trunk installs)\n";
@@ -231,6 +258,7 @@ if (length($ARGV[0])>1)
 		print "  [--fastagi_log_checkforwait=60] = define FastAGI log check-for-wait seconds\n";
 		print "  [--build_multiserver_conf] = generates conf file examples for extensions.conf and iax.conf\n";
 		print "  [--build_phones_conf] = generates conf file examples for extensions.conf, sip.conf and iax.conf\n";
+		print "  [--khomp-enable] = build khomp-activated scripts during install\n";
 		print "\n";
 
 		exit;
@@ -441,6 +469,66 @@ if (length($ARGV[0])>1)
 				print "  CLI defined DB port:        $VARDB_port\n";
 				}
 			}
+		if ($args =~ /--CS_server=/i) # CLI defined Cosl Storage Database server address
+			{
+			@CLICS_serverARY = split(/--CS_server=/,$args);
+			@CLICS_serverARX = split(/ /,$CLICS_serverARY[1]);
+			if (length($CLICS_serverARX[0])>2)
+				{
+				$VARCS_server = $CLICS_serverARX[0];
+				$VARCS_server =~ s/\/$| |\r|\n|\t//gi;
+				$CLICS_server=1;
+				print "  CLI defined CS server:      $VARCS_server\n";
+				}
+			}
+		if ($args =~ /--CS_database=/i) # CLI defined CS Database name
+			{
+			@CLICS_databaseARY = split(/--CS_database=/,$args);
+			@CLICS_databaseARX = split(/ /,$CLICS_databaseARY[1]);
+			if (length($CLICS_databaseARX[0])>1)
+				{
+				$VARCS_database = $CLICS_databaseARX[0];
+				$VARCS_database =~ s/ |\r|\n|\t//gi;
+				$CLICS_database=1;
+				print "  CLI defined CS database:    $VARCS_database\n";
+				}
+			}
+		if ($args =~ /--CS_user=/i) # CLI defined CS Database user login
+			{
+			@CLICS_userARY = split(/--CS_user=/,$args);
+			@CLICS_userARX = split(/ /,$CLICS_userARY[1]);
+			if (length($CLICS_userARX[0])>1)
+				{
+				$VARCS_user = $CLICS_userARX[0];
+				$VARCS_user =~ s/ |\r|\n|\t//gi;
+				$CLICS_user=1;
+				print "  CLI defined CS user:        $VARCS_user\n";
+				}
+			}
+		if ($args =~ /--CS_pass=/i) # CLI defined CS Database user password
+			{
+			@CLICS_passARY = split(/--CS_pass=/,$args);
+			@CLICS_passARX = split(/ /,$CLICS_passARY[1]);
+			if (length($CLICS_passARX[0])>1)
+				{
+				$VARCS_pass = $CLICS_passARX[0];
+				$VARCS_pass =~ s/ |\r|\n|\t//gi;
+				$CLICS_pass=1;
+				print "  CLI defined CS password:    $VARCS_pass\n";
+				}
+			}
+		if ($args =~ /--CS_port=/i) # CLI defined CS Database connection port
+			{
+			@CLICS_portARY = split(/--CS_port=/,$args);
+			@CLICS_portARX = split(/ /,$CLICS_portARY[1]);
+			if (length($CLICS_portARX[0])>1)
+				{
+				$VARCS_port = $CLICS_portARX[0];
+				$VARCS_port =~ s/ |\r|\n|\t//gi;
+				$CLICS_port=1;
+				print "  CLI defined CS port:        $VARCS_port\n";
+				}
+			}
 		if ($args =~ /--active_keepalives=/i) # CLI defined keepalive processes
 			{
 			@CLIkeepaliveARY = split(/--active_keepalives=/,$args);
@@ -618,6 +706,13 @@ if (length($ARGV[0])>1)
 			$CLIcopy_web_lang='n';
 			}
 
+		if ($args =~ /--khomp-enable/i) # khomp enable flag
+			{
+			$CLIVARKhompEnabled=1;
+			$VARKhompEnabled=1;
+			print "  CLI Khomp enabled:    YES ($CLIVARKhompEnabled|$VARKhompEnabled)\n";
+			}
+
 		if ($args =~ /--fastagi_log_min_servers=/i) # CLI defined fastagi min servers
 			{
 			@CLIDB_minserARY = split(/--fastagi_log_min_servers=/,$args);
@@ -737,6 +832,16 @@ if (length($ARGV[0])>1)
 					{$VARDB_custom_pass = $line;   $VARDB_custom_pass =~ s/.*=//gi;}
 				if ( ($line =~ /^VARDB_port/) && ($CLIDB_port < 1) )
 					{$VARDB_port = $line;   $VARDB_port =~ s/.*=//gi;}
+				if ( ($line =~ /^VARCS_server/) && ($CLICS_server < 1) )
+					{$VARCS_server = $line;   $VARCS_server =~ s/.*=//gi;}
+				if ( ($line =~ /^VARCS_database/) && ($CLICS_database < 1) )
+					{$VARCS_database = $line;   $VARCS_database =~ s/.*=//gi;}
+				if ( ($line =~ /^VARCS_user/) && ($CLICS_user < 1) )
+					{$VARCS_user = $line;   $VARCS_user =~ s/.*=//gi;}
+				if ( ($line =~ /^VARCS_pass/) && ($CLICS_pass < 1) )
+					{$VARCS_pass = $line;   $VARCS_pass =~ s/.*=//gi;}
+				if ( ($line =~ /^VARCS_port/) && ($CLICS_port < 1) )
+					{$VARCS_port = $line;   $VARCS_port =~ s/.*=//gi;}
 				$i++;
 				}
 
@@ -903,6 +1008,16 @@ if (length($ARGV[0])>1)
 					{$VARDB_custom_pass = $line;   $VARDB_custom_pass =~ s/.*=//gi;}
 				if ( ($line =~ /^VARDB_port/) && ($CLIDB_port < 1) )
 					{$VARDB_port = $line;   $VARDB_port =~ s/.*=//gi;}
+				if ( ($line =~ /^VARCS_server/) && ($CLICS_server < 1) )
+					{$VARCS_server = $line;   $VARCS_server =~ s/.*=//gi;}
+				if ( ($line =~ /^VARCS_database/) && ($CLICS_database < 1) )
+					{$VARCS_database = $line;   $VARCS_database =~ s/.*=//gi;}
+				if ( ($line =~ /^VARCS_user/) && ($CLICS_user < 1) )
+					{$VARCS_user = $line;   $VARCS_user =~ s/.*=//gi;}
+				if ( ($line =~ /^VARCS_pass/) && ($CLICS_pass < 1) )
+					{$VARCS_pass = $line;   $VARCS_pass =~ s/.*=//gi;}
+				if ( ($line =~ /^VARCS_port/) && ($CLICS_port < 1) )
+					{$VARCS_port = $line;   $VARCS_port =~ s/.*=//gi;}
 				$i++;
 				}
 
@@ -1048,6 +1163,16 @@ if (-e "$PATHconf")
 			{$VARDB_custom_pass = $line;   $VARDB_custom_pass =~ s/.*=//gi;}
 		if ( ($line =~ /^VARDB_port/) && ($CLIDB_port < 1) )
 			{$VARDB_port = $line;   $VARDB_port =~ s/.*=//gi;}
+		if ( ($line =~ /^VARCS_server/) && ($CLICS_server < 1) )
+			{$VARCS_server = $line;   $VARCS_server =~ s/.*=//gi;}
+		if ( ($line =~ /^VARCS_database/) && ($CLICS_database < 1) )
+			{$VARCS_database = $line;   $VARCS_database =~ s/.*=//gi;}
+		if ( ($line =~ /^VARCS_user/) && ($CLICS_user < 1) )
+			{$VARCS_user = $line;   $VARCS_user =~ s/.*=//gi;}
+		if ( ($line =~ /^VARCS_pass/) && ($CLICS_pass < 1) )
+			{$VARCS_pass = $line;   $VARCS_pass =~ s/.*=//gi;}
+		if ( ($line =~ /^VARCS_port/) && ($CLICS_port < 1) )
+			{$VARCS_port = $line;   $VARCS_port =~ s/.*=//gi;}
 		if ( ($line =~ /^VARactive_keepalives/) && ($CLIactive_keepalives < 1) )
 			{$VARactive_keepalives = $line;   $VARactive_keepalives =~ s/.*=//gi;}
 		if ( ($line =~ /^VARasterisk_version/) && ($CLIasterisk_version < 1) )
@@ -1088,6 +1213,9 @@ if (-e "$PATHconf")
 			{$VARfastagi_log_checkfordead = $line;   $VARfastagi_log_checkfordead =~ s/.*=//gi;}
 		if ( ($line =~ /^VARfastagi_log_checkforwait/) && ($CLIVARfastagi_log_checkforwait < 1) )
 			{$VARfastagi_log_checkforwait = $line;   $VARfastagi_log_checkforwait =~ s/.*=//gi;}
+		if ( ($line =~ /^KhompEnabled/) && ($CLIVARKhompEnabled < 1) )
+			{$VARKhompEnabled = $line;   $VARKhompEnabled =~ s/.*=//gi;}
+
 		$i++;
 		}
 	}
@@ -1167,6 +1295,16 @@ else
 					{$VARDB_custom_pass = $line;   $VARDB_custom_pass =~ s/.*=//gi;}
 				if ( ($line =~ /^VARDB_port/) && ($CLIDB_port < 1) )
 					{$VARDB_port = $line;   $VARDB_port =~ s/.*=//gi;}
+				if ( ($line =~ /^VARCS_server/) && ($CLICS_server < 1) )
+					{$VARCS_server = $line;   $VARCS_server =~ s/.*=//gi;}
+				if ( ($line =~ /^VARCS_database/) && ($CLICS_database < 1) )
+					{$VARCS_database = $line;   $VARCS_database =~ s/.*=//gi;}
+				if ( ($line =~ /^VARCS_user/) && ($CLICS_user < 1) )
+					{$VARCS_user = $line;   $VARCS_user =~ s/.*=//gi;}
+				if ( ($line =~ /^VARCS_pass/) && ($CLICS_pass < 1) )
+					{$VARCS_pass = $line;   $VARCS_pass =~ s/.*=//gi;}
+				if ( ($line =~ /^VARCS_port/) && ($CLICS_port < 1) )
+					{$VARCS_port = $line;   $VARCS_port =~ s/.*=//gi;}
 				if ( ($line =~ /^VARactive_keepalives/) && ($CLIactive_keepalives < 1) )
 					{$VARactive_keepalives = $line;   $VARactive_keepalives =~ s/.*=//gi;}
 				if ( ($line =~ /^VARasterisk_version/) && ($CLIasterisk_version < 1) )
@@ -1207,6 +1345,8 @@ else
 					{$VARfastagi_log_checkfordead = $line;   $VARfastagi_log_checkfordead =~ s/.*=//gi;}
 				if ( ($line =~ /^VARfastagi_log_checkforwait/) && ($CLIVARfastagi_log_checkforwait < 1) )
 					{$VARfastagi_log_checkforwait = $line;   $VARfastagi_log_checkforwait =~ s/.*=//gi;}
+				if ( ($line =~ /^KhompEnabled/) && ($CLIVARKhompEnabled < 1) )
+					{$VARKhompEnabled = $line;   $VARKhompEnabled =~ s/.*=//gi;}
 				$i++;
 				}
 			}
@@ -1805,6 +1945,111 @@ else
 			}
 		##### END DB_port prompting and check  #####
 
+
+		##### BEGIN CS_server prompting and check #####
+		if (length($VARCS_server)<7)
+			{	
+			$VARCS_server = '';
+			}
+		$continue='NO';
+		while ($continue =~/NO/)
+			{
+			print("\nCS server address or press enter for default(optional): [$VARCS_server] ");
+			$PROMPTCS_server = <STDIN>;
+			chomp($PROMPTCS_server);
+			if (length($PROMPTCS_server)>6)
+				{
+				$PROMPTCS_server =~ s/ |\n|\r|\t|\/$//gi;
+				$VARCS_server=$PROMPTCS_server;
+				$continue='YES';
+				}
+			else
+				{
+				$continue='YES';
+				}
+			}
+		##### END CS_server prompting and check  #####
+
+		##### BEGIN CS_database prompting and check #####
+		$continue='NO';
+		while ($continue =~/NO/)
+			{
+			print("\nCS database name or press enter for default(optional): [$VARCS_database] ");
+			$PROMPTCS_database = <STDIN>;
+			chomp($PROMPTCS_database);
+			if (length($PROMPTCS_database)>1)
+				{
+				$PROMPTCS_database =~ s/ |\n|\r|\t|\/$//gi;
+				$VARCS_database=$PROMPTCS_database;
+				$continue='YES';
+				}
+			else
+				{
+				$continue='YES';
+				}
+			}
+		##### END CS_database prompting and check  #####
+
+		##### BEGIN CS_user prompting and check #####
+		$continue='NO';
+		while ($continue =~/NO/)
+			{
+			print("\nCS user login or press enter for default(optional): [$VARCS_user] ");
+			$PROMPTCS_user = <STDIN>;
+			chomp($PROMPTCS_user);
+			if (length($PROMPTCS_user)>1)
+				{
+				$PROMPTCS_user =~ s/ |\n|\r|\t|\/$//gi;
+				$VARCS_user=$PROMPTCS_user;
+				$continue='YES';
+				}
+			else
+				{
+				$continue='YES';
+				}
+			}
+		##### END CS_user prompting and check  #####
+
+		##### BEGIN CS_pass prompting and check #####
+		$continue='NO';
+		while ($continue =~/NO/)
+			{
+			print("\nCS user password or press enter for default(optional): [$VARCS_pass] ");
+			$PROMPTCS_pass = <STDIN>;
+			chomp($PROMPTCS_pass);
+			if (length($PROMPTCS_pass)>1)
+				{
+				$PROMPTCS_pass =~ s/ |\n|\r|\t|\/$//gi;
+				$VARCS_pass=$PROMPTCS_pass;
+				$continue='YES';
+				}
+			else
+				{
+				$continue='YES';
+				}
+			}
+		##### END CS_pass prompting and check  #####
+
+		##### BEGIN CS_port prompting and check #####
+		$continue='NO';
+		while ($continue =~/NO/)
+			{
+			print("\nCS connection port or press enter for default(optional): [$VARCS_port] ");
+			$PROMPTCS_port = <STDIN>;
+			chomp($PROMPTCS_port);
+			if (length($PROMPTCS_port)>1)
+				{
+				$PROMPTCS_port =~ s/ |\n|\r|\t|\/$//gi;
+				$VARCS_port=$PROMPTCS_port;
+				$continue='YES';
+				}
+			else
+				{
+				$continue='YES';
+				}
+			}
+		##### END CS_port prompting and check  #####
+
 		##### BEGIN active_keepalives prompting and check #####
 		$continue='NO';
 		while ($continue =~/NO/)
@@ -1821,8 +2066,9 @@ else
 			print " 7 - AST_VDauto_dial_FILL (only for multi-server, this must only be on one server)\n";
 			print " 8 - ip_relay (used for blind agent monitoring)\n";
 			print " 9 - Timeclock auto logout\n";
+			print " C - ConfBridge process, (see the ConfBridge documentation for more info)\n";
 			print " E - Email processor, (If multi-server system, this must only be on one server)\n";
-			print " S - SIP Logger (Patched Asterisk 13 required)\n";
+			print " S - SIP Logger (Patched Asterisk 13 or higher required)\n";
 			print "Enter active keepalives or press enter for default: [$VARactive_keepalives] ";
 			$PROMPTactive_keepalives = <STDIN>;
 			chomp($PROMPTactive_keepalives);
@@ -1850,6 +2096,7 @@ else
 			print " 1.8\n";
 			print " 11.X\n";
 			print " 13.X\n";
+			print " 16.X\n";
 			print "Enter asterisk version or press enter for default: [$VARasterisk_version] ";
 			$PROMPTasterisk_version = <STDIN>;
 			chomp($PROMPTasterisk_version);
@@ -2312,6 +2559,25 @@ else
 			}
 		##### END fastagi_log_checkforwait prompting and check  #####
 
+		##### BEGIN KhompEnabled prompting and check #####
+		$continue='NO';
+		while ($continue =~/NO/)
+			{
+			print("\nKhomp Enabled: [$VARKhompEnabled] ");
+			$PROMPTKhompEnabled = <STDIN>;
+			chomp($PROMPTKhompEnabled);
+			if (length($PROMPTKhompEnabled)>0)
+				{
+				$PROMPTKhompEnabled =~ s/ |\n|\r|\t|\/$//gi;
+				$VARKhompEnabled=$PROMPTKhompEnabled;
+				$continue='YES';
+				}
+			else
+				{
+				$continue='YES';
+				}
+			}
+		##### END KhompEnabled prompting and check  #####
 
 		print "\n";
 		print "  defined conf file:        $PATHconf\n";
@@ -2330,6 +2596,11 @@ else
 		print "  defined DB_custom_user:   $VARDB_custom_user\n";
 		print "  defined DB_custom_pass:   $VARDB_custom_pass\n";
 		print "  defined DB_port:          $VARDB_port\n";
+		print "  defined CS_server:        $VARCS_server\n";
+		print "  defined CS_database:      $VARCS_database\n";
+		print "  defined CS_user:          $VARCS_user\n";
+		print "  defined CS_pass:          $VARCS_pass\n";
+		print "  defined CS_port:          $VARCS_port\n";
 		print "  defined active_keepalives:     $VARactive_keepalives\n";
 		print "  defined asterisk_version:      $VARasterisk_version\n";
 		print "  defined copying conf files:    $PROMPTcopy_conf_files\n";
@@ -2352,6 +2623,7 @@ else
 		print "  defined fastagi_log_max_requests:      $VARfastagi_log_max_requests\n";
 		print "  defined fastagi_log_checkfordead:      $VARfastagi_log_checkfordead\n";
 		print "  defined fastagi_log_checkforwait:      $VARfastagi_log_checkforwait\n";
+		print "  defined KhompEnabled:      $VARKhompEnabled\n";
 		print "\n";
 
 		print("Are these settings correct?(y/n): [y] ");
@@ -2415,6 +2687,13 @@ print conf "VARDB_custom_user => $VARDB_custom_user\n";
 print conf "VARDB_custom_pass => $VARDB_custom_pass\n";
 print conf "VARDB_port => $VARDB_port\n";
 print conf "\n";
+print conf "# Cold-Storage Database connection information (optional)\n";
+print conf "VARCS_server => $VARCS_server\n";
+print conf "VARCS_database => $VARCS_database\n";
+print conf "VARCS_user => $VARCS_user\n";
+print conf "VARCS_pass => $VARCS_pass\n";
+print conf "VARCS_port => $VARCS_port\n";
+print conf "\n";
 print conf "# Alpha-Numeric list of the astGUIclient processes to be kept running\n";
 print conf "# (value should be listing of characters with no spaces: 1234568)\n";
 print conf "#  X - NO KEEPALIVE PROCESSES (use only if you want none to be keepalive)\n";
@@ -2427,8 +2706,9 @@ print conf "#  6 - FastAGI_log\n";
 print conf "#  7 - AST_VDauto_dial_FILL (only for multi-server, this must only be on one server)\n";
 print conf "#  8 - ip_relay (used for blind agent monitoring)\n";
 print conf "#  9 - Timeclock auto logout, (If multi-server system, this must only be on one server)\n";
+print conf "#  C - ConfBridge process, (see the ConfBridge documentation for more info)\n";
 print conf "#  E - Email processor, (If multi-server system, this must only be on one server)\n";
-print conf "#  S - SIP Logger (Patched Asterisk 13 required)\n";
+print conf "#  S - SIP Logger (Patched Asterisk 13 or higher required)\n";
 print conf "VARactive_keepalives => $VARactive_keepalives\n";
 print conf "\n";
 print conf "# Asterisk version VICIDIAL is installed for\n";
@@ -2460,6 +2740,9 @@ print conf "VARfastagi_log_checkforwait => $VARfastagi_log_checkforwait\n";
 print conf "\n";
 print conf "# Expected DB Schema version for this install\n";
 print conf "ExpectedDBSchema => $ExpectedDBSchema\n";
+print conf "\n";
+print conf "# 3rd-party add-ons for this install\n";
+print conf "KhompEnabled => $VARKhompEnabled\n";
 close(conf);
 
 
@@ -2535,6 +2818,15 @@ if ($WEBONLY < 1)
 	print "setting agi-bin scripts to executable...\n";
 	`chmod 0755 $PATHagi/*`;
 
+	if ( ($VARKhompEnabled eq '1') || ($VARKhompEnabled eq 'YES') ) 
+		{
+		print "Enabling Khomp in FastAGI_log.pl and agi-VDAD_ALL_outbound.agi scripts... \n";
+		`cp -f $PATHhome/FastAGI_log.pl $PATHhome/FastAGI_log-orig.pl `;
+		`cp -f $PATHagi/agi-VDAD_ALL_outbound.agi $PATHagi/agi-VDAD_ALL_outbound-orig.agi `;
+		`sed -i 's/#UC#//g' $PATHhome/FastAGI_log.pl `;
+		`sed -i 's/#UC#//g' $PATHagi/agi-VDAD_ALL_outbound.agi `;
+		}
+
 	print "Copying sounds to $PATHsounds...\n";
 	`cp -fR ./sounds/* $PATHsounds/`;
 
@@ -2567,6 +2859,7 @@ if ($NOWEB < 1)
 	if (!-e "$PATHweb/vicidial/agent_reports/")		{`mkdir -p $PATHweb/vicidial/agent_reports/`;}
 	if (!-e "$PATHweb/vicidial/server_reports/")	{`mkdir -p $PATHweb/vicidial/server_reports/`;}
 	if (!-e "$PATHweb/chat_customer/")				{`mkdir -p $PATHweb/chat_customer/`;}
+	if (!-e "$PATHweb/VERM/")						{`mkdir -p $PATHweb/VERM/`;}
 
 	print "Copying web files...\n";
 	# save custom.css if its not empty
@@ -2579,12 +2872,14 @@ if ($NOWEB < 1)
 	`cp -f ./www/vicidial/robots.txt $PATHweb/vicidial/server_reports/`;
 	if (-e "$PATHweb/agc/css/custom.css.save_user_changes") {`mv $PATHweb/agc/css/custom.css.save_user_changes $PATHweb/agc/css/custom.css`;}
 	`cp -f ./www/vicidial/robots.txt $PATHweb/chat_customer/`;
+	`cp -f ./www/vicidial/robots.txt $PATHweb/VERM/`;
 
 	print "setting web scripts to executable...\n";
 	`chmod 0777 $PATHweb/`;
 	`chmod -R 0755 $PATHweb/agc/`;
 	`chmod -R 0755 $PATHweb/vicidial/`;
 	`chmod -R 0755 $PATHweb/chat_customer/`;
+	`chmod -R 0755 $PATHweb/VERM/`;
 	`chmod 0777 $PATHweb/agc/`;
 	`chmod 0777 $PATHweb/vicidial/`;
 	`chmod 0777 $PATHweb/vicidial/ploticus/`;
@@ -2600,6 +2895,9 @@ if ($NOWEB < 1)
 	`rm -f $PATHweb/vicidial/listloader_super.pl`;
 	`rm -f $PATHweb/vicidial/listloader.pl`;
 	`chmod 0777 $PATHweb/chat_customer/`;
+	`cp -f /dev/null $PATHweb/VERM/project_auth_entries.txt`;
+	`chmod 0777 $PATHweb/VERM/project_auth_entries.txt`;
+	`chmod 0777 $PATHweb/VERM/`;
 	}
 
 if ( ($PROMPTcopy_web_lang =~ /y/i) || ($CLIcopy_web_lang =~ /y/i) )
@@ -2629,6 +2927,7 @@ if ($PATHconf !~ /\/etc\/astguiclient.conf/)
 	`sed -i 's/$PATHconfDEFAULT/$PATHconfEREG/g' $PATHweb/vicidial/listloader_rowdisplay.pl `;
 	`sed -i 's/$PATHconfDEFAULT/$PATHconfEREG/g' $PATHweb/vicidial/spreadsheet_sales_viewer.pl `;
 	`sed -i 's/$PATHconfDEFAULT/$PATHconfEREG/g' $PATHweb/chat_customer/dbconnect_mysqli.php `;
+	`sed -i 's/$PATHconfDEFAULT/$PATHconfEREG/g' $PATHweb/VERM/dbconnect_mysqli.php `;
 	}
 
 if ( ($PROMPTcopy_conf_files =~ /y/i) || ($CLIcopy_conf_files =~ /y/i) )
@@ -2659,17 +2958,43 @@ if ( ($PROMPTcopy_conf_files =~ /y/i) || ($CLIcopy_conf_files =~ /y/i) )
 				{
 				`cp -f ./docs/conf_examples/extensions.conf.sample-13 /etc/asterisk/extensions.conf`;
 				`cp -f ./docs/conf_examples/iax.conf.sample-1.4 /etc/asterisk/iax.conf`;
-				`cp -f ./docs/conf_examples/sip.conf.sample-1.4 /etc/asterisk/sip.conf`;
+				`cp -f ./docs/conf_examples/sip.conf.sample-13 /etc/asterisk/sip.conf`;
 				`cp -f ./docs/conf_examples/manager.conf.sample-13 /etc/asterisk/manager.conf`;
 				`cp -f ./docs/conf_examples/voicemail.conf.sample-1.8 /etc/asterisk/voicemail.conf`;
 				}
 			else
 				{
-				`cp -f ./docs/conf_examples/extensions.conf.sample-1.4 /etc/asterisk/extensions.conf`;
-				`cp -f ./docs/conf_examples/iax.conf.sample-1.4 /etc/asterisk/iax.conf`;
-				`cp -f ./docs/conf_examples/sip.conf.sample-1.4 /etc/asterisk/sip.conf`;
-				`cp -f ./docs/conf_examples/manager.conf.sample /etc/asterisk/manager.conf`;
-				`cp -f ./docs/conf_examples/voicemail.conf.sample /etc/asterisk/voicemail.conf`;
+				if ($VARasterisk_version =~ /^16/)
+					{
+					`cp -f ./docs/conf_examples/extensions.conf.sample-13 /etc/asterisk/extensions.conf`;
+					`cp -f ./docs/conf_examples/iax.conf.sample-1.4 /etc/asterisk/iax.conf`;
+					`cp -f ./docs/conf_examples/sip.conf.sample-13 /etc/asterisk/sip.conf`;
+					`cp -f ./docs/conf_examples/manager.conf.sample-13 /etc/asterisk/manager.conf`;
+					`cp -f ./docs/conf_examples/voicemail.conf.sample-1.8 /etc/asterisk/voicemail.conf`;
+					`cp -f ./docs/conf_examples/pjsip.conf.sample-16 /etc/asterisk/pjsip.conf`;
+					`cp -f ./docs/conf_examples/pjsip_wizard.conf.sample-16 /etc/asterisk/pjsip_wizard.conf`;
+					}
+				else
+					{
+					if ($VARasterisk_version =~ /^18|^20/)
+						{
+						`cp -f ./docs/conf_examples/extensions.conf.sample-18 /etc/asterisk/extensions.conf`;
+						`cp -f ./docs/conf_examples/iax.conf.sample-1.4 /etc/asterisk/iax.conf`;
+						`cp -f ./docs/conf_examples/sip.conf.sample-13 /etc/asterisk/sip.conf`;
+						`cp -f ./docs/conf_examples/manager.conf.sample-13 /etc/asterisk/manager.conf`;
+						`cp -f ./docs/conf_examples/voicemail.conf.sample-1.8 /etc/asterisk/voicemail.conf`;
+						`cp -f ./docs/conf_examples/pjsip.conf.sample-16 /etc/asterisk/pjsip.conf`;
+						`cp -f ./docs/conf_examples/pjsip_wizard.conf.sample-16 /etc/asterisk/pjsip_wizard.conf`;
+						}
+					else
+						{
+						`cp -f ./docs/conf_examples/extensions.conf.sample-1.4 /etc/asterisk/extensions.conf`;
+						`cp -f ./docs/conf_examples/iax.conf.sample-1.4 /etc/asterisk/iax.conf`;
+						`cp -f ./docs/conf_examples/sip.conf.sample-1.4 /etc/asterisk/sip.conf`;
+						`cp -f ./docs/conf_examples/manager.conf.sample /etc/asterisk/manager.conf`;
+						`cp -f ./docs/conf_examples/voicemail.conf.sample /etc/asterisk/voicemail.conf`;
+						}
+					}
 				}
 			}
 		}

@@ -1,13 +1,16 @@
 <?php
 # whiteboard_reports.php
 # 
-# Copyright (C) 2020  Matt Florell <vicidial@gmail.com>, Joe Johnson <freewermadmin@gmail.com>    LICENSE: AGPLv2
+# Copyright (C) 2024  Matt Florell <vicidial@gmail.com>, Joe Johnson <freewermadmin@gmail.com>    LICENSE: AGPLv2
 #
 # A PHP file that is for generating the stats that are displayed in the whiteboard report.  Returns values.
 #
 # 171027-2352 - First build
 # 190302-1707 - Added code to exclude active calls from being counted with some stats
 # 200427-2225 - Added use of slave database, if activated, fixes Issue #1207
+# 210823-0948 - Fix for security issue
+# 220221-1452 - Added allow_web_debug system setting
+# 240801-1130 - Code updates for PHP8 compatibility
 #
 
 require("dbconnect_mysqli.php");
@@ -21,6 +24,7 @@ if (file_exists('options.php'))
 $PHP_AUTH_USER=$_SERVER['PHP_AUTH_USER'];
 $PHP_AUTH_PW=$_SERVER['PHP_AUTH_PW'];
 $PHP_SELF=$_SERVER['PHP_SELF'];
+$PHP_SELF = preg_replace('/\.php.*/i','.php',$PHP_SELF);
 if (isset($_GET["DB"]))				{$DB=$_GET["DB"];}
 	elseif (isset($_POST["DB"]))	{$DB=$_POST["DB"];}
 if (isset($_GET["query_date"]))				{$query_date=$_GET["query_date"];}
@@ -56,13 +60,28 @@ if (isset($_GET["target_per_team"]))			{$target_per_team=$_GET["target_per_team"
 if (isset($_GET["rpt_type"]))					{$rpt_type=$_GET["rpt_type"];}
 	elseif (isset($_POST["rpt_type"]))			{$rpt_type=$_POST["rpt_type"];}
 
+$DB=preg_replace("/[^0-9a-zA-Z]/","",$DB);
+
+if (!$query_date) {$query_date=date("Y-m-d");}
+if (!$query_time) {$query_time="08:00:00";}
+
+if (!$end_date) {$end_date=date("Y-m-d");}
+if (!$end_time) {$end_time=date("H:i:00");}
+
+if (!is_array($campaigns)) {$campaigns=array();}
+if (!is_array($users)) {$users=array();}
+if (!is_array($groups)) {$groups=array();}
+if (!is_array($user_groups)) {$user_groups=array();}
+if (!is_array($status_flags)) {$status_flags=array();}
+if (!is_array($dids)) {$dids=array();}
+
 $report_name="Real-Time Whiteboard Report";
 
 #############################################
 ##### START SYSTEM_SETTINGS LOOKUP #####
-$stmt = "SELECT use_non_latin,outbound_autodial_active,slave_db_server,reports_use_slave_db,enable_languages,language_method,admin_screen_colors FROM system_settings;";
+$stmt = "SELECT use_non_latin,outbound_autodial_active,slave_db_server,reports_use_slave_db,enable_languages,language_method,admin_screen_colors,allow_web_debug FROM system_settings;";
 $rslt=mysql_to_mysqli($stmt, $link);
-if ($DB) {$MAIN.="$stmt\n";}
+#if ($DB) {$MAIN.="$stmt\n";}
 $qm_conf_ct = mysqli_num_rows($rslt);
 if ($qm_conf_ct > 0)
 	{
@@ -74,9 +93,96 @@ if ($qm_conf_ct > 0)
 	$SSenable_languages =			$row[4];
 	$SSlanguage_method =			$row[5];
 	$admin_screen_colors =			$row[6];
+	$SSallow_web_debug =			$row[7];
 	}
+if ($SSallow_web_debug < 1) {$DB=0;}
 ##### END SETTINGS LOOKUP #####
 ###########################################
+
+$query_date=preg_replace("/[^0-9\-]/", "", $query_date);
+$end_date=preg_replace("/[^0-9\-]/", "", $end_date);
+$query_time=preg_replace("/[^0-9\:]/", "", $query_time);
+$end_time=preg_replace("/[^0-9\:]/", "", $end_time);
+$rpt_type=preg_replace('/[^-_0-9\p{L}]/u', "", $rpt_type);
+$hourly_display=preg_replace("/[^0-9]/", "", $hourly_display);
+$target_gross=preg_replace("/[^0-9]/", "", $target_gross);
+$target_per_agent=preg_replace("/[^0-9]/", "", $target_per_agent);
+$target_per_team=preg_replace("/[^0-9]/", "", $target_per_team);
+$commission_rates = preg_replace('/[^-\._0-9\p{L}]/u',"",$commission_rates);
+$campaigns=preg_replace('/[^-_0-9\p{L}]/u','',$campaigns);
+$users=preg_replace('/[^-_0-9\p{L}]/u','',$users);
+$user_groups=preg_replace('/[^-_0-9\p{L}]/u','',$user_groups);
+$groups=preg_replace('/[^-_0-9\p{L}]/u','',$groups);
+$dids=preg_replace('/[^-_0-9\p{L}]/u','',$dids);
+$status_flags=preg_replace('/[^-_0-9\p{L}]/u','',$status_flags);
+
+if ($non_latin < 1)
+	{
+	$PHP_AUTH_USER = preg_replace('/[^-_0-9a-zA-Z]/', '', $PHP_AUTH_USER);
+	$PHP_AUTH_PW=preg_replace("/[^-\.\+\/\=_0-9a-zA-Z]/","",$PHP_AUTH_PW);
+	}
+else
+	{
+	$PHP_AUTH_USER = preg_replace('/[^-_0-9\p{L}]/u', '', $PHP_AUTH_USER);
+	$PHP_AUTH_PW = preg_replace('/[^-\.\+\/\=_0-9\p{L}]/u','',$PHP_AUTH_PW);
+	}
+
+$auth=0;
+$reports_auth=0;
+$admin_auth=0;
+$auth_message = user_authorization($PHP_AUTH_USER,$PHP_AUTH_PW,'REPORTS',1,0);
+if ($auth_message == 'GOOD')
+	{$auth=1;}
+
+if ($auth > 0)
+	{
+	$stmt="SELECT count(*) from vicidial_users where user='$PHP_AUTH_USER' and user_level > 7 and view_reports='1';";
+	if ($DB) {echo "|$stmt|\n";}
+	$rslt=mysql_to_mysqli($stmt, $link);
+	$row=mysqli_fetch_row($rslt);
+	$admin_auth=$row[0];
+
+	$stmt="SELECT count(*) from vicidial_users where user='$PHP_AUTH_USER' and user_level > 6 and view_reports='1';";
+	if ($DB) {echo "|$stmt|\n";}
+	$rslt=mysql_to_mysqli($stmt, $link);
+	$row=mysqli_fetch_row($rslt);
+	$reports_auth=$row[0];
+
+	if ($reports_auth < 1)
+		{
+		$VDdisplayMESSAGE = _QXZ("You are not allowed to view reports");
+		Header ("Content-type: text/html; charset=utf-8");
+		echo "$VDdisplayMESSAGE: |$PHP_AUTH_USER|$auth_message|\n";
+		exit;
+		}
+	if ( ($reports_auth > 0) and ($admin_auth < 1) )
+		{
+		$ADD=999999;
+		$reports_only_user=1;
+		}
+	}
+else
+	{
+	$VDdisplayMESSAGE = _QXZ("Login incorrect, please try again");
+	if ($auth_message == 'LOCK')
+		{
+		$VDdisplayMESSAGE = _QXZ("Too many login attempts, try again in 15 minutes");
+		Header ("Content-type: text/html; charset=utf-8");
+		echo "$VDdisplayMESSAGE: |$PHP_AUTH_USER|$auth_message|\n";
+		exit;
+		}
+	if ($auth_message == 'IPBLOCK')
+		{
+		$VDdisplayMESSAGE = _QXZ("Your IP Address is not allowed") . ": $ip";
+		Header ("Content-type: text/html; charset=utf-8");
+		echo "$VDdisplayMESSAGE: |$PHP_AUTH_USER|$auth_message|\n";
+		exit;
+		}
+	Header("WWW-Authenticate: Basic realm=\"CONTACT-CENTER-ADMIN\"");
+	Header("HTTP/1.0 401 Unauthorized");
+	echo "$VDdisplayMESSAGE: |$PHP_AUTH_USER|$PHP_AUTH_PW|$auth_message|\n";
+	exit;
+	}
 
 if ( (strlen($slave_db_server)>5) and (preg_match("/$report_name/",$reports_use_slave_db)) )
 	{
@@ -86,13 +192,6 @@ if ( (strlen($slave_db_server)>5) and (preg_match("/$report_name/",$reports_use_
 	require("dbconnect_mysqli.php");
 	$MAIN.="<!-- Using slave server $slave_db_server $db_source -->\n";
 	}
-
-
-if (!$query_date) {$query_date=date("Y-m-d");}
-if (!$query_time) {$query_time="08:00:00";}
-
-if (!$end_date) {$end_date=date("Y-m-d");}
-if (!$end_time) {$end_time=date("H:i:00");}
 
 if ($hourly_display) 
 	{	
@@ -108,18 +207,13 @@ $exclude_statuses=array("INCALL", "DISPO", "QUEUE", "DONEM");
 $exc_status_SQL=" and status not in ('".implode("','", $exclude_statuses)."') ";
 
 
-$query_date=preg_replace("/[^0-9\-]/", "", $query_date);
-$end_date=preg_replace("/[^0-9\-]/", "", $end_date);
-$query_time=preg_replace("/[^0-9\:]/", "", $query_time);
-$end_time=preg_replace("/[^0-9\:]/", "", $end_time);
-
 if (preg_match("/status_performance/", $rpt_type)) {
-	if (!$campaigns || in_array("--ALL--", $campaigns)) {
+	if (!is_array($campaigns) || in_array("--ALL--", $campaigns)) {
 		$campaign_id_SQL="";
 	} else {
 		$campaign_id_SQL=" and campaign_id in ('".implode("','", $campaigns)."')";
 	}
-	if (!$groups || in_array("--ALL--", $groups)) {
+	if (!is_array($groups) || in_array("--ALL--", $groups)) {
 		if ($campaign_id_SQL=="") {
 			$group_SQL="";
 		} else {
@@ -137,12 +231,12 @@ if (preg_match("/status_performance/", $rpt_type)) {
 	} else {
 		$group_SQL=" and campaign_id in ('".implode("','", $groups)."')";
 	}
-	if (!$users || in_array("--ALL--", $users)) {
+	if (!is_array($users) || in_array("--ALL--", $users)) {
 		$user_SQL="";
 	} else {
 		$user_SQL=" and user in ('".implode("','", $users)."')";
 	}
-	if (!$status_flags || in_array("--ALL--", $status_flags)) {
+	if (!is_array($status_flags) || in_array("--ALL--", $status_flags)) {
 		$status_SQL="";
 	} else {
 		$flag_SQL="";
@@ -225,13 +319,14 @@ if (preg_match("/status_performance/", $rpt_type)) {
 		$sales_ary[$key2]  = $row2['sales'];
 		$dead_ary[$key2]  = $row2['dead'];
 	}
-
-	array_multisort($status_ary, SORT_ASC, $counts_ary, SORT_ASC, $sales_ary, SORT_ASC, $dead_ary, SORT_ASC, $kstatus_counts);
 	
 	if (count($status_counts)==0) {
 		$rpt_string=_QXZ("REPORT RETURNED NO RESULTS");
 	} else {
 #		while(list($key, $val)=each($status_counts)) {
+
+		array_multisort($status_ary, SORT_ASC, $counts_ary, SORT_ASC, $sales_ary, SORT_ASC, $dead_ary, SORT_ASC, $kstatus_counts);
+		
 		foreach ($kstatus_counts as $row) {
 			$key=$row['status'];
 			$val0=$row['counts'];
@@ -254,27 +349,27 @@ if (preg_match("/status_performance/", $rpt_type)) {
 
 if (preg_match("/(agent|team)_performance/", $rpt_type)) {
 
-	if (!$campaigns || in_array("--ALL--", $campaigns)) {
+	if (!is_array($campaigns) || in_array("--ALL--", $campaigns)) {
 		$campaign_id_SQL="";
 	} else {
 		$campaign_id_SQL=" and campaign_id in ('".implode("','", $campaigns)."')";
 	}
-	if (!$users || in_array("--ALL--", $users)) {
+	if (!is_array($users) || in_array("--ALL--", $users)) {
 		$user_SQL="";
 	} else {
 		$user_SQL=" and user in ('".implode("','", $users)."')";
 	}
-	if (!$groups || in_array("--ALL--", $groups)) {
+	if (!is_array($groups) || in_array("--ALL--", $groups)) {
 		$group_SQL="";
 	} else {
 		$group_SQL=" and campaign_id in ('".implode("','", $groups)."')";
 	}
-	if (!$user_groups || in_array("--ALL--", $user_groups)) {
+	if (!is_array($user_groups) || in_array("--ALL--", $user_groups)) {
 		$user_group_SQL="";
 	} else {
 		$user_group_SQL=" and user_group in ('".implode("','", $user_groups)."')";
 	}
-	if (!$status_flags || in_array("--ALL--", $status_flags)) {
+	if (!is_array($status_flags) || in_array("--ALL--", $status_flags)) {
 		$status_SQL="";
 	} else {
 		$flag_SQL="";
@@ -382,12 +477,12 @@ if (preg_match("/floor_performance/", $rpt_type)) {
 		$start_epoch+=60;
 	}
 	
-	if (in_array("--ALL--", $campaigns)) {
+	if (!is_array($campaigns) || in_array("--ALL--", $campaigns)) {
 		$campaign_id_SQL="";
 	} else {
 		$campaign_id_SQL=" and vicidial_agent_log.campaign_id in ('".implode("','", $campaigns)."')";
 	}
-	if (!$status_flags || in_array("--ALL--", $status_flags)) {
+	if (!is_array($status_flags) || in_array("--ALL--", $status_flags)) {
 		$status_SQL="";
 	} else {
 		$flag_SQL="";
@@ -462,29 +557,29 @@ if (preg_match("/floor_performance/", $rpt_type)) {
 }
 
 if (preg_match("/(did|ingroup)_performance/", $rpt_type)) {
-	if (!$campaigns || in_array("--ALL--", $campaigns)) {
+	if (!is_array($campaigns) || in_array("--ALL--", $campaigns)) {
 		$campaign_id_SQL="";
 	} else {
 		$campaign_id_SQL=" and campaign_id in ('".implode("','", $campaigns)."')";
 	}
-	if (!$groups || in_array("--ALL--", $groups)) {
+	if (!is_array($groups) || in_array("--ALL--", $groups)) {
 		$group_SQL="";
 		$ingroup_SQL="";
 	} else {
 		$group_SQL=" and campaign_id in ('".implode("','", $groups)."')";
 		$ingroup_SQL=" and group_id in ('".implode("','", $groups)."')";
 	}
-	if (!$user_groups || in_array("--ALL--", $user_groups)) {
+	if (!is_array($user_groups) || in_array("--ALL--", $user_groups)) {
 		$user_group_SQL="";
 	} else {
 		$user_group_SQL=" and user_group in ('".implode("','", $user_groups)."')";
 	}
-	if (!$dids || in_array("--ALL--", $dids)) {
+	if (!is_array($dids) || in_array("--ALL--", $dids)) {
 		$did_SQL="";
 	} else {
 		$did_SQL=" and vid.did_id in ('".implode("','", $dids)."')";
 	}
-	if (!$status_flags || in_array("--ALL--", $status_flags)) {
+	if (!is_array($status_flags) || in_array("--ALL--", $status_flags)) {
 		$status_SQL="";
 	} else {
 		$flag_SQL="";
@@ -601,12 +696,12 @@ if (preg_match("/(did|ingroup)_performance/", $rpt_type)) {
 
 if ($rpt_type=="floor_performance_hourly") {
 	$rpt_string="";
-	if (in_array("--ALL--", $campaigns)) {
+	if (!is_array($campaigns) || in_array("--ALL--", $campaigns)) {
 		$campaign_id_SQL="";
 	} else {
 		$campaign_id_SQL=" and vicidial_agent_log.campaign_id in ('".implode("','", $campaigns)."')";
 	}
-	if (!$status_flags || in_array("--ALL--", $status_flags)) {
+	if (!is_array($status_flags) || in_array("--ALL--", $status_flags)) {
 		$status_SQL="";
 	} else {
 		$flag_SQL="";

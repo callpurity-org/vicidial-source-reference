@@ -1,7 +1,7 @@
 <?php
 # audio_store.php
 # 
-# Copyright (C) 2020  Matt Florell <vicidial@gmail.com>    LICENSE: AGPLv2
+# Copyright (C) 2022  Matt Florell <vicidial@gmail.com>    LICENSE: AGPLv2
 #
 # Central Audio Storage script
 # 
@@ -31,18 +31,30 @@
 # 180508-0115 - Added new help display
 # 180618-2300 - Modified calls to audio file chooser function
 # 201002-1536 - Allowed for secure sounds_web_server setting
+# 210321-0131 - Added classAudioFile PHP library for WAV file format validation
+# 210322-1220 - Added checking of .wav files for asterisk-compatible format
+# 220120-0927 - Added audio_store_GSM_allowed option. Disable GSM file uploads by default
+# 220222-2348 - Added allow_web_debug system setting
 #
 
-$version = '2.14-23';
-$build = '201002-1536';
+$version = '2.14-27';
+$build = '220222-2348';
 
 $MT[0]='';
 
 require("dbconnect_mysqli.php");
 require("functions.php");
+require ('classAudioFile.php');
+
+$audio_store_GSM_allowed=0;
+if (file_exists('options.php'))
+	{
+	require('options.php');
+	}
 
 $server_name = getenv("SERVER_NAME");
 $PHP_SELF=$_SERVER['PHP_SELF'];
+$PHP_SELF = preg_replace('/\.php.*/i','.php',$PHP_SELF);
 $audiofile=$_FILES["audiofile"];
 	$AF_orig = $_FILES['audiofile']['name'];
 	$AF_path = $_FILES['audiofile']['tmp_name'];
@@ -72,6 +84,7 @@ if (isset($_GET["lead_file"]))				{$lead_file=$_GET["lead_file"];}
 if (isset($_GET["force_allow"]))			{$force_allow=$_GET["force_allow"];}
 	elseif (isset($_POST["force_allow"]))	{$force_allow=$_POST["force_allow"];}
 
+$DB=preg_replace("/[^0-9a-zA-Z]/","",$DB);
 
 header ("Content-type: text/html; charset=utf-8");
 header ("Cache-Control: no-cache, must-revalidate");  // HTTP/1.1
@@ -79,9 +92,9 @@ header ("Pragma: no-cache");                          // HTTP/1.0
 
 #############################################
 ##### START SYSTEM_SETTINGS LOOKUP #####
-$stmt = "SELECT use_non_latin,sounds_central_control_active,sounds_web_server,sounds_web_directory,outbound_autodial_active,enable_languages,language_method,active_modules,contacts_enabled,allow_emails,qc_features_active FROM system_settings;";
+$stmt = "SELECT use_non_latin,sounds_central_control_active,sounds_web_server,sounds_web_directory,outbound_autodial_active,enable_languages,language_method,active_modules,contacts_enabled,allow_emails,qc_features_active,allow_web_debug FROM system_settings;";
 $rslt=mysql_to_mysqli($stmt, $link);
-if ($DB) {echo "$stmt\n";}
+#if ($DB) {echo "$stmt\n";}
 $ss_conf_ct = mysqli_num_rows($rslt);
 if ($ss_conf_ct > 0)
 	{
@@ -97,9 +110,38 @@ if ($ss_conf_ct > 0)
 	$SScontacts_enabled =				$row[8];
 	$SSemail_enabled =					$row[9];
 	$SSqc_features_active =				$row[10];
+	$SSallow_web_debug =				$row[11];
 	}
+if ($SSallow_web_debug < 1) {$DB=0;}
 ##### END SETTINGS LOOKUP #####
 ###########################################
+
+$action = preg_replace('/[^-_0-9a-zA-Z]/','',$action);
+$SUBMIT = preg_replace('/[^-_0-9a-zA-Z]/','',$SUBMIT);
+$overwrite = preg_replace('/[^-_0-9a-zA-Z]/','',$overwrite);
+$force_allow = preg_replace('/[^-_0-9a-zA-Z]/','',$force_allow);
+
+# Variables filter further down in the code
+#	$audiofile_name
+
+if ($non_latin < 1)
+	{
+	$delete_file = preg_replace('/[^-\._0-9a-zA-Z]/','',$delete_file);
+	$submit_file = preg_replace('/[^-\._0-9a-zA-Z]/','',$submit_file);
+	$master_audiofile = preg_replace('/[^-\._0-9a-zA-Z]/','',$master_audiofile);
+	$new_audiofile = preg_replace('/[^-\._0-9a-zA-Z]/','',$new_audiofile);
+	$lead_file = preg_replace('/[^-\._0-9a-zA-Z]/','',$lead_file);
+	$audio_server_ip = preg_replace('/[^-\.\:\_0-9a-zA-Z]/','',$audio_server_ip);
+	}
+else
+	{
+	$delete_file = preg_replace('/[^-\._0-9\p{L}]/u','',$delete_file);
+	$submit_file = preg_replace('/[^-\._0-9\p{L}]/u','',$submit_file);
+	$master_audiofile = preg_replace('/[^-\._0-9\p{L}]/u','',$master_audiofile);
+	$new_audiofile = preg_replace('/[^-\._0-9\p{L}]/u','',$new_audiofile);
+	$lead_file = preg_replace('/[^-\._0-9\p{L}]/u','',$lead_file);
+	$audio_server_ip = preg_replace('/[^-\.\:\_0-9\p{L}]/u','',$audio_server_ip);
+	}
 
 ### check if sounds server matches this server IP, if not then exit with an error
 $sounds_web_server = str_replace(array('http://','https://'), '', $sounds_web_server);
@@ -165,6 +207,7 @@ if (strlen($audio_server_ip) > 6)
 		{$formIPvalid=1;}
 	}
 $ip = getenv("REMOTE_ADDR");
+
 if ( (!preg_match("/\|$ip\|/", $server_ips)) and ($formIPvalid < 1) )
 	{
 	$user_set=1;
@@ -177,10 +220,9 @@ if ( (!preg_match("/\|$ip\|/", $server_ips)) and ($formIPvalid < 1) )
 		}
 	else
 		{
-		$PHP_AUTH_PW = preg_replace("/'|\"|\\\\|;/","",$PHP_AUTH_PW);
-		$PHP_AUTH_USER = preg_replace("/'|\"|\\\\|;/","",$PHP_AUTH_USER);
+		$PHP_AUTH_USER = preg_replace('/[^-_0-9\p{L}]/u', '', $PHP_AUTH_USER);
+		$PHP_AUTH_PW = preg_replace('/[^-_0-9\p{L}]/u', '', $PHP_AUTH_PW);
 		}
-	$delete_file = preg_replace('/[^-\._0-9a-zA-Z]/','',$delete_file);
 
 	$stmt="SELECT selected_language,qc_enabled from vicidial_users where user='$PHP_AUTH_USER';";
 	if ($DB) {echo "|$stmt|\n";}
@@ -197,8 +239,10 @@ if ( (!preg_match("/\|$ip\|/", $server_ips)) and ($formIPvalid < 1) )
 	$reports_auth=0;
 	$admin_auth=0;
 	$auth_message = user_authorization($PHP_AUTH_USER,$PHP_AUTH_PW,'REPORTS',1,0);
-	if ($auth_message == 'GOOD')
-		{$auth=1;}
+	if ( ($auth_message == 'GOOD') or ($auth_message == '2FA') )
+		{
+		$auth=1;
+		}
 
 	if ($auth > 0)
 		{
@@ -315,6 +359,114 @@ if ($action == "LIST")
 		}
 	exit;
 	}
+
+
+##### BEGIN go through all Audio Store WAV files and validate for asterisk compatibility #####
+$stmt = "SELECT count(*) FROM audio_store_details where audio_format='wav' and wav_asterisk_valid='';";
+$rslt=mysql_to_mysqli($stmt, $link);
+if ($DB) {echo "$stmt\n";}
+$row=mysqli_fetch_row($rslt);
+$wuv_ct = $row[0];
+if ( ($wuv_ct > 0) or ($action == "ALL_WAV_VALIDATION") )
+	{
+	if ($DB) {echo "Starting WAV file validation process...\n";}
+	$i=0;
+	$filename_sort=$MT;
+	$dirpath = "$WeBServeRRooT/$sounds_web_directory";
+	$dh = opendir($dirpath);
+	while (false !== ($file = readdir($dh))) 
+		{
+		# Do not list subdirectories
+		if ( (!is_dir("$dirpath/$file")) and (preg_match('/\.wav$|\.gsm$/', $file)) )
+			{
+			if (file_exists("$dirpath/$file")) 
+				{
+				$file_names[$i] = $file;
+				$file_epoch[$i] = filemtime("$dirpath/$file");
+				$file_dates[$i] = date ("Y-m-d H:i:s.", filemtime("$dirpath/$file"));
+				$file_sizes[$i] = filesize("$dirpath/$file");
+				$filename_sort[$i] = $file . "----------" . $i . "----------" . $file_sizes[$i];
+				$i++;
+				}
+			}
+		}
+	closedir($dh);
+
+	sort($filename_sort);
+
+	sleep(1);
+
+	$wav_valid=0;
+	$wav_invalid=0;
+	$not_wav=0;
+	$k=0;
+	while($k < $i)
+		{
+		$filename_split = explode('----------',$filename_sort[$k]);
+		$m = $filename_split[1];
+		$size = $filename_split[2];
+		$audio_filesize = filesize("$dirpath/$file_names[$m]");
+		if ($size == $audio_filesize)
+			{
+			$audio_filename = $file_names[$m];
+			$audio_epoch = date("U");
+			$wav_format_details='';
+			$wav_asterisk_valid='NA';
+
+			if (preg_match("/\.wav$/", $audio_filename))
+				{
+				$audio_format='wav';
+				$audio_length = ($audio_filesize / 16000);
+
+				$AF = new AudioFile;
+				$AF->loadFile("$dirpath/$file_names[$m]");
+
+				$wav_type = $AF->wave_type;
+				$wav_compression = $AF->getCompression ($AF->wave_compression);
+				$wav_channels = $AF->wave_channels;
+				$wav_framerate = $AF->wave_framerate;
+				$wav_bits=$AF->wave_bits;
+				$audio_length=number_format ($AF->wave_length,"0");
+				$invalid_wav=0;
+
+				if (!preg_match('/^wav/i',$wav_type)) {$invalid_wav++;}
+				if (!preg_match('/^pcm/i',$wav_compression)) {$invalid_wav++;}
+				if ($wav_channels > 1) {$invalid_wav++;}
+				if ( ($wav_framerate > 8000) or ($wav_framerate < 8000) ) {$invalid_wav++;}
+				if ( ($wav_bits > 16) or ($wav_bits < 16) ) {$invalid_wav++;}
+
+				$wav_format_details = "$wav_type   channels: $wav_channels   framerate: $wav_framerate   bits: $wav_bits   length: $audio_length   compression: $wav_compression";
+
+				if ($invalid_wav > 0)
+					{
+					$wav_asterisk_valid='BAD';
+					$wav_invalid++;
+					}
+				else
+					{
+					$wav_asterisk_valid='GOOD';
+					$wav_valid++;
+					}
+
+				$stmt="INSERT IGNORE INTO audio_store_details SET audio_filename='$audio_filename',audio_format='$audio_format',audio_filesize='$audio_filesize',audio_epoch='$audio_epoch',audio_length='$audio_length',wav_format_details='$wav_format_details',wav_asterisk_valid='$wav_asterisk_valid' ON DUPLICATE KEY UPDATE audio_filesize='$audio_filesize',audio_epoch='$audio_epoch',audio_length='$audio_length',wav_format_details='$wav_format_details',wav_asterisk_valid='$wav_asterisk_valid';";
+				if ($DB) {echo "|$stmt|\n";}
+				$rslt=mysql_to_mysqli($stmt, $link);
+				$affected_rowsX = mysqli_affected_rows($link);
+				}
+			else
+				{
+				$not_wav++;
+				}
+
+			if ($DB) {echo "$k\t$file_names[$m]\t$wav_asterisk_valid\n";}
+			}
+		$k++;
+		}
+	
+	if ($DB) {echo "SUMMARY: WAV VALID: $wav_valid   WAV INVALID: $wav_invalid   NOT WAV: $not_wav\n";}
+	}
+##### END go through all Audio Store WAV files and validate for asterisk compatibility #####
+
 
 
 ### upload audio file from server to webserver
@@ -541,27 +693,79 @@ if ($action == "MANUALUPLOAD")
 		$audiofile_name = preg_replace("/\!/",'',$audiofile_name);
 		$audiofile_name = preg_replace("/\%/",'',$audiofile_name);
 		$audiofile_name = preg_replace("/\^/",'',$audiofile_name);
-		if (preg_match("/\.wav$|\.gsm$/", $audiofile_name))
+		if ( (preg_match("/\.wav$/", $audiofile_name)) or ( (preg_match("/\.gsm$/", $audiofile_name)) and ($audio_store_GSM_allowed > 0) ) )
 			{
 			copy($AF_path, "$WeBServeRRooT/$sounds_web_directory/$audiofile_name");
 			chmod("$WeBServeRRooT/$sounds_web_directory/$audiofile_name", 0766);
 			
-			echo _QXZ("SUCCESS").": $audiofile_name "._QXZ("uploaded")."     "._QXZ("size").":" . filesize("$WeBServeRRooT/$sounds_web_directory/$audiofile_name") . "\n";
+			$audio_epoch = date("U");
+			$audio_format='gsm';
+			$audio_filesize = filesize("$WeBServeRRooT/$sounds_web_directory/$audiofile_name");
+			$audio_length = ($audio_filesize / 1650);
+			$wav_format_details='';
+			$wav_asterisk_valid='NA';
+			echo "<BR>"._QXZ("SUCCESS").": $audiofile_name "._QXZ("uploaded")."     "._QXZ("size").": $audio_filesize<BR><BR>\n";
+
+			if (preg_match("/\.wav$/", $audiofile_name))
+				{
+				$audio_format='wav';
+				$audio_length = ($audio_filesize / 16000);
+
+				$AF = new AudioFile;
+				$AF->loadFile("$WeBServeRRooT/$sounds_web_directory/$audiofile_name");
+
+				$wav_type = $AF->wave_type;
+				$wav_compression = $AF->getCompression ($AF->wave_compression);
+				$wav_channels = $AF->wave_channels;
+				$wav_framerate = $AF->wave_framerate;
+				$wav_bits=$AF->wave_bits;
+				$audio_length=number_format ($AF->wave_length,"0");
+				$invalid_wav=0;
+
+				if (!preg_match('/^wav/i',$wav_type)) {$invalid_wav++;}
+				if (!preg_match('/^pcm/i',$wav_compression)) {$invalid_wav++;}
+				if ($wav_channels > 1) {$invalid_wav++;}
+				if ( ($wav_framerate > 8000) or ($wav_framerate < 8000) ) {$invalid_wav++;}
+				if ( ($wav_bits > 16) or ($wav_bits < 16) ) {$invalid_wav++;}
+
+				$wav_format_details = "$wav_type   channels: $wav_channels   framerate: $wav_framerate   bits: $wav_bits   length: $audio_length   compression: $wav_compression";
+
+				if ($invalid_wav > 0)
+					{
+					$wav_asterisk_valid='BAD';
+					echo " &nbsp; <BR><BR><font color=red>"._QXZ("INVALID WAV FILE FORMAT").": ($audiofile_name)</font><BR> &nbsp; </FONT><FONT FACE=\"ARIAL,HELVETICA\" COLOR=BLACK SIZE=2>$wav_type &nbsp; "._QXZ("channels").": $wav_channels &nbsp; "._QXZ("framerate").": $wav_framerate &nbsp; "._QXZ("bits").": $wav_bits &nbsp; "._QXZ("compression").": $wav_compression<BR><BR><BR>\n";
+					}
+				else
+					{
+					$wav_asterisk_valid='GOOD';
+					echo " &nbsp; </FONT><FONT FACE=\"ARIAL,HELVETICA\" COLOR=BLACK SIZE=1>"._QXZ("WAV FILE FORMAT VALIDATED").": $wav_type &nbsp; "._QXZ("channels").": $wav_channels &nbsp; "._QXZ("framerate").": $wav_framerate &nbsp; "._QXZ("bits").": $wav_bits &nbsp; "._QXZ("compression").": $wav_compression<BR><BR>\n";
+					}
+				echo "</FONT><FONT FACE=\"ARIAL,HELVETICA\" COLOR=BLACK SIZE=3>";
+				}
+
+			$stmt="INSERT IGNORE INTO audio_store_details SET audio_filename='$audiofile_name',audio_format='$audio_format',audio_filesize='$audio_filesize',audio_epoch='$audio_epoch',audio_length='$audio_length',wav_format_details='$wav_format_details',wav_asterisk_valid='$wav_asterisk_valid' ON DUPLICATE KEY UPDATE audio_filesize='$audio_filesize',audio_epoch='$audio_epoch',audio_length='$audio_length',wav_format_details='$wav_format_details',wav_asterisk_valid='$wav_asterisk_valid';";
+			if ($DB) {echo "|$stmt|\n";}
+			$rslt=mysql_to_mysqli($stmt, $link);
+			$affected_rowsX = mysqli_affected_rows($link);
 
 			$stmt="UPDATE servers SET sounds_update='Y';";
 			$rslt=mysql_to_mysqli($stmt, $link);
+			$affected_rowsY = mysqli_affected_rows($link);
 
 			### LOG INSERTION Admin Log Table ###
 			$SQL_log = "$stmt|";
 			$SQL_log = preg_replace('/;/', '', $SQL_log);
 			$SQL_log = addslashes($SQL_log);
-			$stmt="INSERT INTO vicidial_admin_log set event_date=NOW(), user='$PHP_AUTH_USER', ip_address='$ip', event_section='AUDIOSTORE', event_type='LOAD', record_id='manualupload', event_code='$audiofile_name " . filesize("$WeBServeRRooT/$sounds_web_directory/$audiofile_name") . "', event_sql=\"$SQL_log\", event_notes='$audiofile_name $AF_path $AF_orig';";
+			$stmt="INSERT INTO vicidial_admin_log set event_date=NOW(), user='$PHP_AUTH_USER', ip_address='$ip', event_section='AUDIOSTORE', event_type='LOAD', record_id='manualupload', event_code='$audiofile_name $audio_filesize', event_sql=\"$SQL_log\", event_notes='$audiofile_name $AF_path $AF_orig   Invalid: $invalid_wav $wav_type &nbsp; "._QXZ("channels").": $wav_channels &nbsp; "._QXZ("framerate").": $wav_framerate &nbsp; "._QXZ("bits").": $wav_bits &nbsp; "._QXZ("compression").": $wav_compression   "._QXZ("length").": $audio_length   $affected_rowsX|$affected_rowsY';";
 			if ($DB) {echo "|$stmt|\n";}
 			$rslt=mysql_to_mysqli($stmt, $link);
 			}
 		else
 			{
-			echo _QXZ("ERROR").": "._QXZ("only wav and gsm files are allowed in the audio store")."\n";
+			if ( (preg_match("/\.gsm$/", $audiofile_name)) and ($audio_store_GSM_allowed < 1) )
+				{echo _QXZ("ERROR").": "._QXZ("only wav files are allowed in the audio store")."\n";}
+			else
+				{echo _QXZ("ERROR").": "._QXZ("only wav and gsm files are allowed in the audio store")."\n";}
 			}
 		}
 	else

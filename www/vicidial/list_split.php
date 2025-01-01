@@ -1,7 +1,7 @@
 <?php
 # list_split.php - split one big list into smaller lists. Part of Admin Utilities.
 #
-# Copyright (C) 2019  Matt Florell,Michael Cargile <vicidial@gmail.com>    LICENSE: AGPLv2
+# Copyright (C) 2022  Matt Florell,Michael Cargile <vicidial@gmail.com>    LICENSE: AGPLv2
 #
 # CHANGES
 # 140916-1215 - Initial Build
@@ -12,10 +12,12 @@
 # 170409-1542 - Added IP List validation code
 # 170819-1001 - Added allow_manage_active_lists option
 # 190703-0925 - Added use of admin_web_directory system setting
+# 210427-1741 - Added more list count options
+# 220227-2204 - Added allow_web_debug system setting
 #
 
-$version = '2.14-8';
-$build = '190703-0925';
+$version = '2.14-10';
+$build = '220227-2204';
 
 require("dbconnect_mysqli.php");
 require("functions.php");
@@ -23,6 +25,7 @@ require("functions.php");
 $PHP_AUTH_USER=$_SERVER['PHP_AUTH_USER'];
 $PHP_AUTH_PW=$_SERVER['PHP_AUTH_PW'];
 $PHP_SELF=$_SERVER['PHP_SELF'];
+$PHP_SELF = preg_replace('/\.php.*/i','.php',$PHP_SELF);
 $ip = getenv("REMOTE_ADDR");
 $SQLdate = date("Y-m-d H:i:s");
 
@@ -47,18 +50,12 @@ if (isset($_GET["num_leads"])) {$num_leads=$_GET["num_leads"];}
 	elseif (isset($_POST["num_leads"])) {$num_leads=$_POST["num_leads"];}
 
 $DB = preg_replace('/[^0-9]/','',$DB);
-$submit = preg_replace('/[^-_0-9a-zA-Z]/','',$submit);
-$confirm = preg_replace('/[^-_0-9a-zA-Z]/','',$confirm);
-$orig_list = preg_replace('/[^0-9]/','',$orig_list);
-$start_dest_list_id = preg_replace('/[^0-9]/','',$start_dest_list_id);
-$num_leads = preg_replace('/[^0-9]/','',$num_leads);
-
 
 #############################################
 ##### START SYSTEM_SETTINGS LOOKUP #####
-$sys_settings_stmt = "SELECT use_non_latin,outbound_autodial_active,sounds_central_control_active,enable_languages,language_method,active_modules,admin_screen_colors,allow_manage_active_lists,admin_web_directory FROM system_settings;";
+$sys_settings_stmt = "SELECT use_non_latin,outbound_autodial_active,sounds_central_control_active,enable_languages,language_method,active_modules,admin_screen_colors,allow_manage_active_lists,admin_web_directory,allow_web_debug FROM system_settings;";
 $sys_settings_rslt=mysql_to_mysqli($sys_settings_stmt, $link);
-if ($DB) {echo "$sys_settings_stmt\n";}
+#if ($DB) {echo "$sys_settings_stmt\n";}
 $num_rows = mysqli_num_rows($sys_settings_rslt);
 if ($num_rows > 0)
 	{
@@ -72,14 +69,22 @@ if ($num_rows > 0)
 	$SSadmin_screen_colors =			$sys_settings_row[6];
 	$SSallow_manage_active_lists =		$sys_settings_row[7];
 	$SSadmin_web_directory =			$sys_settings_row[8];
+	$SSallow_web_debug =				$sys_settings_row[9];
 	}
 else
 	{
 	# there is something really weird if there are no system settings
 	exit;
 	}
+if ($SSallow_web_debug < 1) {$DB=0;}
 ##### END SETTINGS LOOKUP #####
 ###########################################
+
+$submit = preg_replace('/[^-_0-9a-zA-Z]/','',$submit);
+$confirm = preg_replace('/[^-_0-9a-zA-Z]/','',$confirm);
+$orig_list = preg_replace('/[^0-9]/','',$orig_list);
+$start_dest_list_id = preg_replace('/[^0-9]/','',$start_dest_list_id);
+$num_leads = preg_replace('/[^0-9]/','',$num_leads);
 
 if ($non_latin < 1)
 	{
@@ -88,10 +93,9 @@ if ($non_latin < 1)
 	}
 else
 	{
-	$PHP_AUTH_PW = preg_replace("/'|\"|\\\\|;/","",$PHP_AUTH_PW);
-	$PHP_AUTH_USER = preg_replace("/'|\"|\\\\|;/","",$PHP_AUTH_USER);
+	$PHP_AUTH_USER = preg_replace('/[^-_0-9\p{L}]/u', '', $PHP_AUTH_USER);
+	$PHP_AUTH_PW = preg_replace('/[^-_0-9\p{L}]/u', '', $PHP_AUTH_PW);
 	}
-$list_id_override = preg_replace('/[^0-9]/','',$list_id_override);
 
 $stmt="SELECT selected_language from vicidial_users where user='$PHP_AUTH_USER';";
 if ($DB) {echo "|$stmt|\n";}
@@ -626,14 +630,24 @@ if (($submit != _QXZ("submit") ) && ($confirm != "confirm"))
 	# Number of leads per list
 	echo "<tr bgcolor=#$SSstd_row4_background><td align=right>"._QXZ("Number of Leads Per List")."</td><td align=left>\n";
 	echo "<select size=1 name=num_leads>\n";
-	echo "<option value='10000'>10000</option>\n";
-	echo "<option value='20000'>20000</option>\n";
-	echo "<option value='30000'>30000</option>\n";
-	echo "<option value='40000'>40000</option>\n";
-	echo "<option value='50000'>50000</option>\n";
 	echo "<option value='60000'>60000</option>\n";
+	echo "<option value='50000'>50000</option>\n";
+	echo "<option value='40000'>40000</option>\n";
+	echo "<option value='30000'>30000</option>\n";
+	echo "<option value='20000'>20000</option>\n";
+	echo "<option value='10000'>10000</option>\n";
+	echo "<option value='9000'>9000</option>\n";
+	echo "<option value='8000'>8000</option>\n";
+	echo "<option value='7000'>7000</option>\n";
+	echo "<option value='6000'>6000</option>\n";
+	echo "<option value='5000'>5000</option>\n";
+	echo "<option value='4000'>4000</option>\n";
+	echo "<option value='3000'>3000</option>\n";
+	echo "<option value='2000'>2000</option>\n";
 	echo "<option value='1000'>1000</option>\n";
+	echo "<option value='500'>500</option>\n";
 	echo "<option value='100'>100</option>\n";
+	echo "<option value='50'>50</option>\n";
 	echo "<option value='10'>10</option>\n";
 	echo "</select></td></tr>\n";
 

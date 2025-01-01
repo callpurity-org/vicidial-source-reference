@@ -624,7 +624,7 @@ ALTER TABLE vicidial_inbound_groups ADD park_file_name VARCHAR(100) default '';
 
 UPDATE system_settings SET db_schema_version='1543',db_schema_update_date=NOW() where db_schema_version < 1543;
 
-ALTER TABLE vicidial_lists_fields MODIFY field_type ENUM('TEXT','AREA','SELECT','MULTI','RADIO','CHECKBOX','DATE','TIME','DISPLAY','SCRIPT','HIDDEN','READONLY','HIDEBLOB','SWITCH') default 'TEXT';
+ALTER TABLE vicidial_lists_fields MODIFY field_type ENUM('TEXT','AREA','SELECT','MULTI','RADIO','CHECKBOX','DATE','TIME','DISPLAY','SCRIPT','HIDDEN','READONLY','HIDEBLOB','SWITCH','SOURCESELECT','BUTTON') default 'TEXT';
 
 UPDATE system_settings SET db_schema_version='1544',db_schema_update_date=NOW() where db_schema_version < 1544;
 
@@ -1365,7 +1365,7 @@ ALTER TABLE vicidial_campaigns ADD transfer_button_launch VARCHAR(12) default 'N
 
 UPDATE system_settings SET db_schema_version='1613',db_schema_update_date=NOW() where db_schema_version < 1613;
 
-ALTER TABLE system_settings ADD allow_shared_dial ENUM('0','1') default '0';
+ALTER TABLE system_settings ADD allow_shared_dial ENUM('0','1','2','3','4','5','6') default '0';
 
 ALTER TABLE vicidial_campaigns ADD shared_dial_rank TINYINT(3) default '99';
 ALTER TABLE vicidial_campaigns MODIFY dial_method ENUM('MANUAL','RATIO','ADAPT_HARD_LIMIT','ADAPT_TAPERED','ADAPT_AVERAGE','INBOUND_MAN','SHARED_RATIO','SHARED_ADAPT_HARD_LIMIT','SHARED_ADAPT_TAPERED','SHARED_ADAPT_AVERAGE') default 'MANUAL';
@@ -1393,3 +1393,1428 @@ ALTER TABLE vicidial_campaigns ADD agent_search_method VARCHAR(2) default '';
 ALTER TABLE vicidial_inbound_groups ADD agent_search_method VARCHAR(2) default '';
 
 UPDATE system_settings SET db_schema_version='1615',db_schema_update_date=NOW() where db_schema_version < 1615;
+
+ALTER TABLE system_settings MODIFY allow_shared_dial ENUM('0','1','2','3','4','5','6') default '0';
+
+CREATE TABLE vicidial_shared_log (
+campaign_id VARCHAR(20) NOT NULL,
+server_ip VARCHAR(15) NOT NULL,
+log_time DATETIME,
+total_agents SMALLINT(5) default '0',
+total_calls SMALLINT(5) default '0',
+debug_output TEXT,
+adapt_output TEXT,
+index (campaign_id),
+index (log_time)
+) ENGINE=MyISAM;
+
+CREATE TABLE vicidial_shared_drops (
+callerid VARCHAR(20),
+server_ip VARCHAR(15) NOT NULL,
+campaign_id VARCHAR(20),
+status ENUM('SENT','RINGING','LIVE','XFER','PAUSED','CLOSER','BUSY','DISCONNECT','IVR') default 'PAUSED',
+lead_id INT(9) UNSIGNED NOT NULL,
+uniqueid VARCHAR(20),
+channel VARCHAR(100),
+phone_code VARCHAR(10),
+phone_number VARCHAR(18),
+call_time DATETIME,
+call_type ENUM('IN','OUT','OUTBALANCE') default 'OUT',
+stage VARCHAR(20) default 'START',
+last_update_time DATETIME,
+alt_dial VARCHAR(6) default 'NONE',
+drop_time DATETIME,
+index (callerid),
+index (call_time),
+index (drop_time)
+) ENGINE=MyISAM;
+
+UPDATE system_settings SET db_schema_version='1616',db_schema_update_date=NOW() where db_schema_version < 1616;
+
+ALTER TABLE vicidial_lists_fields MODIFY field_type ENUM('TEXT','AREA','SELECT','MULTI','RADIO','CHECKBOX','DATE','TIME','DISPLAY','SCRIPT','HIDDEN','READONLY','HIDEBLOB','SWITCH','SOURCESELECT','BUTTON') default 'TEXT';
+
+UPDATE system_settings SET db_schema_version='1617',db_schema_update_date=NOW() where db_schema_version < 1617;
+
+INSERT INTO vicidial_settings_containers VALUES ('PHONE_DEFAULTS','Default phone settings for preloading','PHONE_DEFAULTS','---ALL---','# Below are all phone settings recognized under the PHONE_DEFAULTS \r\n# container type and the type of data each accepts.  Any setting that\r\n# uses a default value in the database has said value pre-set below\r\n\r\n# 10 char max\r\nvoicemail_id => \r\n \r\n# 15 char max\r\nserver_ip => \r\n\r\n# 100 char max\r\npass => \r\n\r\n# 10 char max\r\nstatus => \r\n\r\n# Y/N only\r\nactive => Y\r\n\r\n# 50 char max\r\nphone_type => \r\n\r\n# \'SIP\',\'Zap\',\'IAX2\' or \'EXTERNAL\'\r\nprotocol => SIP\r\n\r\n# positive or negatier 2-decimal floating point number\r\nlocal_gmt => -5.00\r\n\r\n# 20 char max\r\nvoicemail_dump_exten => 85026666666666\r\n\r\n# 20 char max\r\noutbound_cid => \r\n\r\n# 100 char max\r\nemail => \r\n\r\n# 15 char max\r\ntemplate_id => \r\n\r\n# text, conf_override can span multiple lines, see below\r\nconf_override => \r\n# type=friend\r\n# host=dynamic\r\n# canreinvite=no\r\n# context=default1\r\n\r\n# 50 char max\r\nphone_context => default\r\n\r\n# Unsigned - max value 65536\r\nphone_ring_timeout => 60\r\n\r\n# 20 char max\r\nconf_secret => test\r\n\r\n# Y/N only\r\ndelete_vm_after_email => N\r\n\r\n# Options - Y, N, or Y_API_LAUNCH\r\nis_webphone => N\r\n\r\n# Y/N only\r\nuse_external_server_ip => N\r\n\r\n# 100 char max\r\ncodecs_list => \r\n\r\n# 0/1 only\r\ncodecs_with_template => 0\r\n\r\n# Options - Y, N, TOGGLE, or TOGGLE_OFF\r\nwebphone_dialpad => Y\r\n\r\n# Y/N only\r\non_hook_agent => N\r\n\r\n# Y/N only\r\nwebphone_auto_answer => Y\r\n\r\n# 30 char max\r\nvoicemail_timezone => eastern\r\n\r\n# 255 char max\r\nvoicemail_options => \r\n\r\n# 20 char max\r\nuser_group => ---ALL---\r\n\r\n# 100 char max\r\nvoicemail_greeting => \r\n\r\n# 20 char max\r\nvoicemail_dump_exten_no_inst => 85026666666667\r\n\r\n# Y/N only\r\nvoicemail_instructions => Y\r\n\r\n# Y/N only\r\non_login_report => N\r\n\r\n# 40 char max\r\nunavail_dialplan_fwd_exten => \r\n\r\n# 100 char max\r\nunavail_dialplan_fwd_context => \r\n\r\n# text\r\nnva_call_url => \r\n\r\n# 40 char max\r\nnva_search_method => \r\n\r\n# 255 char max\r\nnva_error_filename => \r\n\r\n# Integer, any size\r\nnva_new_list_id => 995\r\n\r\n# 10 char max\r\nnva_new_phone_code => 1\r\n\r\n# 6 char max\r\nnva_new_status => NVAINS\r\n\r\n# Y/N only\r\nwebphone_dialbox => Y\r\n\r\n# Y/N only\r\nwebphone_mute => Y\r\n\r\n# Y/N only\r\nwebphone_volume => Y\r\n\r\n# Y/N only\r\nwebphone_debug => N\r\n\r\n# 20 char max\r\noutbound_alt_cid => \r\n\r\n# Y/N only\r\nconf_qualify => Y\r\n\r\n# 255 char max\r\nwebphone_layout => \r\n');
+
+ALTER TABLE system_settings ADD phone_defaults_container VARCHAR(40) default '---DISABLED---';
+
+UPDATE system_settings SET db_schema_version='1618',db_schema_update_date=NOW() where db_schema_version < 1618;
+
+CREATE TABLE quality_control_checkpoint_log (
+qc_checkpoint_log_id INT(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+qc_log_id INT(10) UNSIGNED DEFAULT NULL,
+campaign_id VARCHAR(8) DEFAULT NULL,
+group_id VARCHAR(20) DEFAULT NULL,
+list_id BIGINT(14) UNSIGNED DEFAULT NULL,
+qc_scorecard_id VARCHAR(20) DEFAULT NULL,
+checkpoint_row_id INT(10) UNSIGNED DEFAULT NULL,
+checkpoint_text TEXT,
+checkpoint_rank TINYINT(3) UNSIGNED DEFAULT NULL,
+checkpoint_points TINYINT(3) UNSIGNED DEFAULT NULL,
+instant_fail ENUM('Y','N') DEFAULT 'N',
+checkpoint_points_earned TINYINT(5) UNSIGNED DEFAULT NULL,
+qc_agent VARCHAR(20) DEFAULT NULL,
+checkpoint_comment_agent TEXT,
+PRIMARY KEY (qc_checkpoint_log_id)
+) ENGINE=MyISAM;
+
+CREATE TABLE quality_control_checkpoints (
+checkpoint_row_id INT(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+qc_scorecard_id VARCHAR(20) DEFAULT NULL,
+checkpoint_text TEXT,
+checkpoint_rank INT(3) UNSIGNED DEFAULT NULL,
+checkpoint_points TINYINT(3) UNSIGNED DEFAULT NULL,
+instant_fail ENUM('Y','N') DEFAULT 'N',
+admin_notes TEXT,
+active ENUM('Y','N') DEFAULT NULL,
+campaign_ids TEXT,
+ingroups TEXT,
+list_ids TEXT,
+create_date DATETIME DEFAULT NULL,
+create_user VARCHAR(10) DEFAULT NULL,
+modify_date TIMESTAMP NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+modify_user VARCHAR(10) DEFAULT NULL,
+PRIMARY KEY (checkpoint_row_id)
+) ENGINE=MyISAM;
+
+CREATE TABLE quality_control_queue (
+qc_log_id INT(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+qc_display_method ENUM('CALL','LEAD') DEFAULT 'CALL',
+lead_id INT(10) UNSIGNED DEFAULT NULL,
+status VARCHAR(6) DEFAULT NULL,
+call_date DATETIME DEFAULT NULL,
+agent_log_id INT(9) UNSIGNED DEFAULT NULL,
+user VARCHAR(20) DEFAULT NULL,
+user_group VARCHAR(20) DEFAULT NULL,
+campaign_id VARCHAR(8) DEFAULT NULL,
+group_id VARCHAR(20) DEFAULT NULL,
+list_id BIGINT(14) UNSIGNED DEFAULT NULL,
+scorecard_source ENUM('CAMPAIGN','INGROUP','LIST') DEFAULT 'CAMPAIGN',
+qc_web_form_address VARCHAR(255) DEFAULT NULL,
+vicidial_id VARCHAR(20) DEFAULT NULL,
+recording_id INT(10) UNSIGNED DEFAULT NULL,
+qc_scorecard_id VARCHAR(20) DEFAULT NULL,
+qc_agent VARCHAR(20) DEFAULT NULL,
+qc_user_group VARCHAR(20) DEFAULT NULL,
+qc_status VARCHAR(20) DEFAULT NULL,
+date_modified TIMESTAMP NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+date_claimed DATETIME DEFAULT NULL,
+date_completed DATETIME DEFAULT NULL,
+PRIMARY KEY (qc_log_id),
+UNIQUE KEY quality_control_queue_agent_log_id_key (agent_log_id),
+KEY quality_control_queue_lead_id_key (lead_id)
+) ENGINE=MyISAM;
+
+CREATE TABLE quality_control_scorecards (
+qc_scorecard_id VARCHAR(20) NOT NULL,
+scorecard_name VARCHAR(255) DEFAULT NULL,
+active ENUM('Y','N') DEFAULT 'Y',
+passing_score SMALLINT(5) UNSIGNED DEFAULT 0,
+last_modified TIMESTAMP NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+PRIMARY KEY (qc_scorecard_id)
+) ENGINE=MyISAM;
+
+ALTER TABLE vicidial_campaigns ADD qc_scorecard_id VARCHAR(20) DEFAULT '';
+ALTER TABLE vicidial_campaigns ADD qc_statuses_id VARCHAR(20) DEFAULT '';
+
+ALTER TABLE vicidial_lists ADD qc_scorecard_id VARCHAR(20) DEFAULT '';
+ALTER TABLE vicidial_lists ADD qc_statuses_id VARCHAR(20) DEFAULT '';
+ALTER TABLE vicidial_lists ADD qc_web_form_address VARCHAR(255) DEFAULT '';
+
+ALTER TABLE vicidial_inbound_groups ADD qc_scorecard_id VARCHAR(20) DEFAULT '';
+ALTER TABLE vicidial_inbound_groups ADD qc_statuses_id VARCHAR(20) DEFAULT '';
+
+ALTER TABLE system_settings ADD qc_claim_limit TINYINT UNSIGNED DEFAULT '3';
+ALTER TABLE system_settings ADD qc_expire_days TINYINT UNSIGNED DEFAULT '3';
+
+INSERT INTO vicidial_settings_containers(container_id,container_notes,container_type,user_group,container_entry) VALUES ('QC_STATUS_TEMPLATE','Sample QC Status Template','QC_TEMPLATE','---ALL---','# These types of containers are simply used for creating a list of \r\n# QC-enabled statuses to apply to campaigns, lists, and ingroups.\r\n# Simply put all the statuses that this template should allow in\r\n# a comma-delimited string, as below:\r\n\r\nSALE,DNC,NI');
+
+UPDATE system_settings SET db_schema_version='1619',db_schema_update_date=NOW() where db_schema_version < 1619;
+
+ALTER TABLE vicidial_lists_fields MODIFY field_type ENUM('TEXT','AREA','SELECT','MULTI','RADIO','CHECKBOX','DATE','TIME','DISPLAY','SCRIPT','HIDDEN','READONLY','HIDEBLOB','SWITCH','SOURCESELECT','BUTTON') default 'TEXT';
+
+ALTER TABLE vicidial_users ADD mobile_number VARCHAR(20) default '';
+ALTER TABLE vicidial_users ADD two_factor_override  ENUM('NOT_ACTIVE','ENABLED','DISABLED') default 'NOT_ACTIVE';
+
+ALTER TABLE system_settings ADD two_factor_auth_hours SMALLINT(5) default '0';
+ALTER TABLE system_settings ADD two_factor_container VARCHAR(40) default '---DISABLED---';
+
+INSERT INTO vicidial_call_menu (menu_id,menu_name,menu_prompt,menu_timeout,menu_timeout_prompt,menu_invalid_prompt,menu_repeat,menu_time_check,call_time_id,track_in_vdac,custom_dialplan_entry,tracking_group,dtmf_log,dtmf_field,user_group,qualify_sql,alt_dtmf_log,question,answer_signal) values('2FA_say_auth_code','2FA_say_auth_code','sip-silence|hello|your|access-code|is|cm_speak_var.agi,say_digits---access_code---DP',1,'NONE','NONE',1,'0','24hours','1','','CALLMENU','0','NONE','---ALL---','','0',0,'Y');
+
+INSERT INTO vicidial_call_menu_options (menu_id,option_value,option_description,option_route,option_route_value,option_route_value_context) values('2FA_say_auth_code','TIMEOUT','','HANGUP','','');
+
+CREATE TABLE vicidial_two_factor_auth (
+auth_date DATETIME,
+auth_exp_date DATETIME,
+user VARCHAR(20) default '',
+auth_stage ENUM('0','1','2','3','4','5','6') default '0',
+auth_code VARCHAR(20) default '',
+auth_code_exp_date DATETIME,
+auth_method VARCHAR(20) default 'EMAIL',
+auth_attempts SMALLINT(5) default '0',
+index (user),
+index (auth_date),
+index (auth_exp_date)
+) ENGINE=MyISAM;
+
+UPDATE system_settings SET db_schema_version='1620',db_schema_update_date=NOW() where db_schema_version < 1620;
+
+ALTER TABLE system_settings MODIFY enhanced_disconnect_logging ENUM('0','1','2','3','4','5','6') default '0';
+
+UPDATE system_settings SET db_schema_version='1621',db_schema_update_date=NOW() where db_schema_version < 1621;
+
+ALTER TABLE vicidial_campaigns ADD clear_form ENUM('DISABLED','ENABLED','ACKNOWLEDGE') default 'ACKNOWLEDGE';
+
+UPDATE system_settings SET db_schema_version='1622',db_schema_update_date=NOW() where db_schema_version < 1622;
+
+CREATE TABLE vicidial_agent_visibility_log (
+db_time DATETIME NOT NULL,
+event_start_epoch INT(10) UNSIGNED,
+event_end_epoch INT(10) UNSIGNED,
+user VARCHAR(20),
+length_in_sec INT(10),
+visibility  ENUM('VISIBLE','HIDDEN','LOGIN','NONE') default 'NONE',
+agent_log_id INT(9) UNSIGNED,
+index (db_time),
+unique index visibleuser (user, visibility, event_end_epoch)
+) ENGINE=MyISAM;
+
+CREATE TABLE vicidial_agent_visibility_log_archive LIKE vicidial_agent_visibility_log;
+
+ALTER TABLE system_settings ADD agent_hidden_sound VARCHAR(20) default 'click_quiet';
+ALTER TABLE system_settings ADD agent_hidden_sound_volume TINYINT(3) UNSIGNED default '25';
+ALTER TABLE system_settings ADD agent_hidden_sound_seconds TINYINT(3) UNSIGNED default '0';
+
+UPDATE system_settings SET db_schema_version='1623',db_schema_update_date=NOW() where db_schema_version < 1623;
+
+ALTER TABLE quality_control_checkpoint_log ADD instant_fail_value ENUM('Y', 'N') default 'N' AFTER instant_fail;
+ALTER TABLE quality_control_checkpoint_log ADD checkpoint_text_presets TEXT AFTER checkpoint_text;
+
+ALTER TABLE quality_control_checkpoints ADD checkpoint_text_presets TEXT AFTER checkpoint_text;
+
+UPDATE system_settings SET db_schema_version='1624',db_schema_update_date=NOW() where db_schema_version < 1624;
+
+ALTER TABLE audio_store_details ADD wav_format_details VARCHAR(255) default '';
+ALTER TABLE audio_store_details ADD wav_asterisk_valid ENUM('','GOOD','BAD','NA') default '';
+
+UPDATE system_settings SET db_schema_version='1625',db_schema_update_date=NOW() where db_schema_version < 1625;
+
+ALTER TABLE vicidial_campaigns ADD leave_3way_start_recording ENUM('DISABLED','ALL_CALLS','ALL_BUT_EXCEPTIONS','ONLY_EXCEPTIONS') default 'DISABLED';
+ALTER TABLE vicidial_campaigns ADD leave_3way_start_recording_exception VARCHAR(40) default 'DISABLED';
+
+UPDATE system_settings SET db_schema_version='1626',db_schema_update_date=NOW() where db_schema_version < 1626;
+
+ALTER TABLE vicidial_inbound_groups ADD populate_lead_comments VARCHAR(40) default 'CALLERID_NAME';
+
+UPDATE system_settings SET db_schema_version='1627',db_schema_update_date=NOW() where db_schema_version < 1627;
+
+ALTER TABLE system_settings ADD agent_screen_timer VARCHAR(20) default 'setTimeout';
+
+UPDATE system_settings SET db_schema_version='1628',db_schema_update_date=NOW() where db_schema_version < 1628;
+
+CREATE TABLE vicidial_peer_event_log (
+`peer_event_id` INT(9) UNSIGNED NOT NULL AUTO_INCREMENT,
+`event_type` ENUM('UNKNOWN','REGISTERED','UNREGISTERED','REACHABLE','LAGGED','UNREACHABLE','RTPDISCONNECT','CRITICALTIMEOUT') COLLATE utf8_unicode_ci DEFAULT 'UNKNOWN',
+`event_date` DATETIME(6) NOT NULL,
+`channel` VARCHAR(100) COLLATE utf8_unicode_ci DEFAULT '',
+`server_ip` VARCHAR(15) COLLATE utf8_unicode_ci NOT NULL,
+`host_ip` VARCHAR(15) COLLATE utf8_unicode_ci DEFAULT '',
+`port` SMALLINT(6) DEFAULT NULL,
+`channel_type` ENUM('IAX2','SIP') COLLATE utf8_unicode_ci DEFAULT NULL,
+`peer` VARCHAR(100) COLLATE utf8_unicode_ci DEFAULT '',
+`data` VARCHAR(255) COLLATE utf8_unicode_ci DEFAULT '',
+PRIMARY KEY (`peer_event_id`),
+KEY `event_date` (`event_date`),
+KEY `peer` (`peer`),
+KEY `channel` (`channel`)
+) ENGINE=MyISAM AUTO_INCREMENT=630320 DEFAULT CHARSET=utf8 
+COLLATE=utf8_unicode_ci;
+
+CREATE TABLE vicidial_peer_event_log_archive LIKE vicidial_peer_event_log;
+ALTER TABLE vicidial_peer_event_log_archive MODIFY peer_event_id INT(9) UNSIGNED NOT NULL;
+
+UPDATE system_settings SET db_schema_version='1629',db_schema_update_date=NOW() where db_schema_version < 1629;
+
+ALTER TABLE vicidial_campaigns ADD calls_waiting_vl_one VARCHAR(25) default 'DISABLED';
+ALTER TABLE vicidial_campaigns ADD calls_waiting_vl_two VARCHAR(25) default 'DISABLED';
+
+UPDATE system_settings SET db_schema_version='1630',db_schema_update_date=NOW() where db_schema_version < 1630;
+
+ALTER TABLE system_settings ADD label_lead_id VARCHAR(60) default '';
+ALTER TABLE system_settings ADD label_list_id VARCHAR(60) default '';
+ALTER TABLE system_settings ADD label_entry_date VARCHAR(60) default '';
+ALTER TABLE system_settings ADD label_gmt_offset_now VARCHAR(60) default '';
+ALTER TABLE system_settings ADD label_source_id VARCHAR(60) default '';
+ALTER TABLE system_settings ADD label_called_since_last_reset VARCHAR(60) default '';
+ALTER TABLE system_settings ADD label_status VARCHAR(60) default '';
+ALTER TABLE system_settings ADD label_user VARCHAR(60) default '';
+ALTER TABLE system_settings ADD label_date_of_birth VARCHAR(60) default '';
+ALTER TABLE system_settings ADD label_country_code VARCHAR(60) default '';
+ALTER TABLE system_settings ADD label_last_local_call_time VARCHAR(60) default '';
+ALTER TABLE system_settings ADD label_called_count VARCHAR(60) default '';
+ALTER TABLE system_settings ADD label_rank VARCHAR(60) default '';
+ALTER TABLE system_settings ADD label_owner VARCHAR(60) default '';
+ALTER TABLE system_settings ADD label_entry_list_id VARCHAR(60) default '';
+
+ALTER TABLE vicidial_screen_labels ADD label_lead_id VARCHAR(60) default '';
+ALTER TABLE vicidial_screen_labels ADD label_list_id VARCHAR(60) default '';
+ALTER TABLE vicidial_screen_labels ADD label_entry_date VARCHAR(60) default '';
+ALTER TABLE vicidial_screen_labels ADD label_gmt_offset_now VARCHAR(60) default '';
+ALTER TABLE vicidial_screen_labels ADD label_source_id VARCHAR(60) default '';
+ALTER TABLE vicidial_screen_labels ADD label_called_since_last_reset VARCHAR(60) default '';
+ALTER TABLE vicidial_screen_labels ADD label_status VARCHAR(60) default '';
+ALTER TABLE vicidial_screen_labels ADD label_user VARCHAR(60) default '';
+ALTER TABLE vicidial_screen_labels ADD label_date_of_birth VARCHAR(60) default '';
+ALTER TABLE vicidial_screen_labels ADD label_country_code VARCHAR(60) default '';
+ALTER TABLE vicidial_screen_labels ADD label_last_local_call_time VARCHAR(60) default '';
+ALTER TABLE vicidial_screen_labels ADD label_called_count VARCHAR(60) default '';
+ALTER TABLE vicidial_screen_labels ADD label_rank VARCHAR(60) default '';
+ALTER TABLE vicidial_screen_labels ADD label_owner VARCHAR(60) default '';
+ALTER TABLE vicidial_screen_labels ADD label_entry_list_id VARCHAR(60) default '';
+
+UPDATE system_settings SET db_schema_version='1631',db_schema_update_date=NOW() where db_schema_version < 1631;
+
+ALTER TABLE vicidial_campaigns ADD calls_inqueue_count_one VARCHAR(40) default 'DISABLED';
+ALTER TABLE vicidial_campaigns ADD calls_inqueue_count_two VARCHAR(40) default 'DISABLED';
+
+UPDATE system_settings SET db_schema_version='1632',db_schema_update_date=NOW() where db_schema_version < 1632;
+
+ALTER TABLE phones ADD mohsuggest VARCHAR(100) default '';
+
+UPDATE system_settings SET db_schema_version='1633',db_schema_update_date=NOW() where db_schema_version < 1633;
+
+CREATE TABLE vicidial_tiltx_shaken_log (
+db_time DATETIME NOT NULL,
+server_ip VARCHAR(15) NOT NULL,
+url_log_id INT(9) UNSIGNED NOT NULL,
+caller_code VARCHAR(20),
+phone_number VARCHAR(19) default '',
+CIDnumber VARCHAR(19) default '',
+CallerIDToUse VARCHAR(19) default '',
+IsDNC TINYINT(1) default '0',
+IsDisconnected TINYINT(1) default '0',
+TILTXID VARCHAR(50),
+Identity TEXT,
+CAID VARCHAR(50),
+index (db_time)
+) ENGINE=MyISAM;
+
+UPDATE system_settings SET db_schema_version='1634',db_schema_update_date=NOW() where db_schema_version < 1634;
+
+ALTER TABLE vicidial_inbound_groups ADD drop_call_seconds_override VARCHAR(40) default 'DISABLED';
+
+ALTER TABLE vicidial_campaigns ADD in_man_dial_next_ready_seconds SMALLINT(5) UNSIGNED default '0';
+ALTER TABLE vicidial_campaigns ADD in_man_dial_next_ready_seconds_override VARCHAR(40) default 'DISABLED';
+
+UPDATE system_settings SET db_schema_version='1635',db_schema_update_date=NOW() where db_schema_version < 1635;
+
+ALTER TABLE phones ADD peer_status ENUM('UNKNOWN','REGISTERED','UNREGISTERED','REACHABLE','LAGGED','UNREACHABLE') COLLATE utf8_unicode_ci NOT NULL DEFAULT 'UNKNOWN';
+ALTER TABLE phones ADD ping_time SMALLINT(6) DEFAULT NULL;
+
+UPDATE system_settings SET db_schema_version='1636',db_schema_update_date=NOW() where db_schema_version < 1636;
+
+ALTER TABLE vicidial_campaigns ADD transfer_no_dispo ENUM('DISABLED','EXTERNAL_ONLY','LOCAL_ONLY','LEAVE3WAY_ONLY','LOCAL_AND_EXTERNAL','LOCAL_AND_LEAVE3WAY','LEAVE3WAY_AND_EXTERNAL','LOCAL_AND_EXTERNAL_AND_LEAVE3WAY') default 'DISABLED';
+
+UPDATE system_settings SET db_schema_version='1637',db_schema_update_date=NOW() where db_schema_version < 1637;
+
+ALTER TABLE vicidial_users ADD manual_dial_filter VARCHAR(50) default 'DISABLED';
+
+UPDATE system_settings SET db_schema_version='1638',db_schema_update_date=NOW() where db_schema_version < 1638;
+
+ALTER TABLE vicidial_list MODIFY called_since_last_reset ENUM('Y','N','Y1','Y2','Y3','Y4','Y5','Y6','Y7','Y8','Y9','Y10','D') default 'N';
+
+CREATE TABLE `vicidial_khomp_log` (
+`khomp_log_id` int(9) unsigned NOT NULL AUTO_INCREMENT,
+`caller_code` varchar(30) COLLATE utf8_unicode_ci NOT NULL,
+`lead_id` int(10) unsigned DEFAULT 0,
+`server_ip` varchar(15) COLLATE utf8_unicode_ci NOT NULL,
+`khomp_header` varchar(100) COLLATE utf8_unicode_ci DEFAULT NULL,
+`khomp_id` varchar(256) COLLATE utf8_unicode_ci DEFAULT NULL,
+`khomp_id_format` enum('CALLERCODE','CALLERCODE_EXTERNIP','CALLERCODE_CAMP_EXTERNIP') COLLATE utf8_unicode_ci DEFAULT NULL,
+`sip_call_id` varchar(256) COLLATE utf8_unicode_ci DEFAULT NULL,
+`start_date` datetime(6) DEFAULT NULL,
+`audio_date` datetime(6) DEFAULT NULL,
+`answer_date` datetime(6) DEFAULT NULL,
+`end_date` datetime(6) DEFAULT NULL,
+`analyzer_date` datetime(6) DEFAULT NULL,
+`conclusion` varchar(100) COLLATE utf8_unicode_ci DEFAULT NULL,
+`pattern` varchar(256) COLLATE utf8_unicode_ci DEFAULT NULL,
+`action` varchar(100) COLLATE utf8_unicode_ci DEFAULT NULL,
+`hangup_origin` varchar(20) COLLATE utf8_unicode_ci DEFAULT NULL,
+`hangup_cause_recv` varchar(20) COLLATE utf8_unicode_ci DEFAULT NULL,
+`hangup_cause_sent` varchar(20) COLLATE utf8_unicode_ci DEFAULT NULL,
+`hangup_auth_time` varchar(20) COLLATE utf8_unicode_ci DEFAULT '0',
+`hangup_query_time` varchar(20) COLLATE utf8_unicode_ci DEFAULT '0',
+`route_auth_time` varchar(20) COLLATE utf8_unicode_ci DEFAULT '0',
+`route_query_time` varchar(20) COLLATE utf8_unicode_ci DEFAULT '0',
+`vici_action` varchar(10) COLLATE utf8_unicode_ci DEFAULT NULL,
+`vici_status` varchar(6) COLLATE utf8_unicode_ci DEFAULT NULL,
+PRIMARY KEY (`khomp_log_id`),
+KEY `caller_code` (`caller_code`),
+KEY `start_date` (`start_date`),
+KEY `khomp_id` (`khomp_id`)
+) ENGINE=MyISAM DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;
+
+CREATE TABLE vicidial_lead_24hour_calls (
+lead_id INT(9) UNSIGNED NOT NULL,
+list_id BIGINT(14) UNSIGNED DEFAULT '0',
+call_date DATETIME,
+phone_number VARCHAR(18),
+phone_code VARCHAR(10),
+state VARCHAR(2),
+call_type ENUM('MANUAL','AUTO','') default '',
+index(lead_id),
+index(call_date),
+index(phone_number)
+) ENGINE=MyISAM;
+
+ALTER TABLE vicidial_campaigns ADD call_limit_24hour_method ENUM('DISABLED','PHONE_NUMBER','LEAD') default 'DISABLED';
+ALTER TABLE vicidial_campaigns ADD call_limit_24hour_scope ENUM('SYSTEM_WIDE','CAMPAIGN_LISTS') default 'SYSTEM_WIDE';
+ALTER TABLE vicidial_campaigns ADD call_limit_24hour TINYINT(3) UNSIGNED default '0';
+ALTER TABLE vicidial_campaigns ADD call_limit_24hour_override VARCHAR(40) default 'DISABLED';
+
+ALTER TABLE system_settings ADD call_limit_24hour ENUM('0','1') default '0';
+ALTER TABLE system_settings ADD call_limit_24hour_reset DATETIME default '2000-01-01 00:00:01';
+
+UPDATE system_settings SET db_schema_version='1639',db_schema_update_date=NOW() where db_schema_version < 1639;
+
+ALTER TABLE vicidial_campaigns ADD cid_group_id_two VARCHAR(20) default '---DISABLED---';
+
+UPDATE system_settings SET db_schema_version='1640',db_schema_update_date=NOW() where db_schema_version < 1640;
+
+CREATE TABLE vicidial_inbound_caller_codes (
+uniqueid VARCHAR(50) NOT NULL,
+server_ip VARCHAR(15),
+call_date DATETIME,
+group_id VARCHAR(20) NOT NULL,
+lead_id INT(9) UNSIGNED,
+caller_code VARCHAR(30) NOT NULL,
+prev_caller_code VARCHAR(40) NOT NULL,
+index (uniqueid),
+index (call_date),
+unique index cicc_cd (caller_code, uniqueid)
+) ENGINE=MyISAM;
+
+CREATE TABLE vicidial_inbound_caller_codes_archive LIKE vicidial_inbound_caller_codes;
+
+UPDATE system_settings SET db_schema_version='1641',db_schema_update_date=NOW() where db_schema_version < 1641;
+
+ALTER TABLE phones MODIFY protocol ENUM('SIP','PJSIP','Zap','IAX2','EXTERNAL') default 'SIP';
+
+ALTER TABLE vicidial_server_carriers MODIFY protocol ENUM('SIP','PJSIP','PJSIP_WIZ','Zap','IAX2','EXTERNAL') default 'SIP';
+
+ALTER TABLE vicidial_peer_event_log MODIFY channel_type ENUM('IAX2','SIP','PJSIP') COLLATE utf8_unicode_ci DEFAULT NULL;
+
+ALTER TABLE system_settings ADD allowed_sip_stacks ENUM('SIP','PJSIP','SIP_and_PJSIP') default 'SIP';
+
+UPDATE system_settings SET db_schema_version='1642',db_schema_update_date=NOW() where db_schema_version < 1642;
+
+CREATE INDEX vavl_agent_log_id on vicidial_agent_visibility_log (agent_log_id);
+
+UPDATE system_settings SET db_schema_version='1643',db_schema_update_date=NOW() where db_schema_version < 1643;
+
+ALTER TABLE vicidial_inbound_dids MODIFY call_handle_method VARCHAR(40) default 'CID';
+ALTER TABLE vicidial_inbound_dids MODIFY filter_call_handle_method VARCHAR(40) default 'CID';
+
+UPDATE system_settings SET db_schema_version='1644',db_schema_update_date=NOW() where db_schema_version < 1644;
+
+ALTER TABLE vicidial_inbound_groups ADD populate_lead_owner VARCHAR(20) default 'DISABLED';
+
+UPDATE system_settings SET db_schema_version='1645',db_schema_update_date=NOW() where db_schema_version < 1645;
+
+ALTER TABLE vicidial_campaigns ADD incall_tally_threshold_seconds SMALLINT(5) UNSIGNED default '0';
+
+UPDATE system_settings SET db_schema_version='1646',db_schema_update_date=NOW() where db_schema_version < 1646;
+
+ALTER TABLE vicidial_inbound_groups ADD in_queue_nanque ENUM('N','Y','NO_PAUSED','NO_PAUSED_EXCEPTIONS','NO_READY') default 'N';
+ALTER TABLE vicidial_inbound_groups ADD in_queue_nanque_exceptions VARCHAR(40) default '';
+
+UPDATE system_settings SET db_schema_version='1647',db_schema_update_date=NOW() where db_schema_version < 1647;
+
+ALTER TABLE vicidial_url_multi ADD url_call_length SMALLINT(5) default '0';
+
+UPDATE system_settings SET db_schema_version='1648',db_schema_update_date=NOW() where db_schema_version < 1648;
+
+ALTER TABLE vicidial_users ADD user_location VARCHAR(100) default '';
+
+INSERT INTO vicidial_settings_containers(container_id,container_notes,container_type,user_group,container_entry) VALUES ('USER_LOCATIONS_SYSTEM','User Locations List','OTHER','---ALL---',';location|description\n|default\n');
+
+CREATE TABLE vicidial_queue_groups (
+queue_group VARCHAR(20) NOT NULL,
+queue_group_name VARCHAR(40) NOT NULL,
+included_campaigns TEXT,
+included_inbound_groups TEXT,
+user_group VARCHAR(20) default '---ALL---',
+active ENUM('Y','N')
+) ENGINE=MyISAM;
+
+UPDATE system_settings SET db_schema_version='1649',db_schema_update_date=NOW() where db_schema_version < 1649;
+
+ALTER TABLE vicidial_user_groups ADD allowed_queue_groups TEXT;
+ALTER TABLE vicidial_user_groups ADD reports_header_override ENUM('DISABLED','LOGO_ONLY_SMALL','LOGO_ONLY_LARGE','ALT_1','ALT_2','ALT_3','ALT_4') default 'DISABLED';
+ALTER TABLE vicidial_user_groups ADD admin_home_url VARCHAR(255) default '';
+
+UPDATE system_settings SET db_schema_version='1650',db_schema_update_date=NOW() where db_schema_version < 1650;
+
+ALTER TABLE vicidial_campaigns ADD auto_alt_threshold TINYINT(3) UNSIGNED default '0';
+
+ALTER TABLE vicidial_lists ADD auto_alt_threshold TINYINT(3) default '-1';
+
+UPDATE system_settings SET db_schema_version='1651',db_schema_update_date=NOW() where db_schema_version < 1651;
+
+ALTER TABLE vicidial_users ADD download_invalid_files ENUM('0','1') default '0';
+
+UPDATE system_settings SET db_schema_version='1652',db_schema_update_date=NOW() where db_schema_version < 1652;
+
+ALTER TABLE vicidial_campaigns ADD pause_max_url TEXT;
+
+UPDATE system_settings SET db_schema_version='1653',db_schema_update_date=NOW() where db_schema_version < 1653;
+
+ALTER TABLE system_settings MODIFY script_remove_js ENUM('1','0','2','3','4','5','6') default '1';
+ALTER TABLE system_settings ADD agent_hide_hangup ENUM('1','0','2','3','4','5','6') default '0';
+
+ALTER TABLE vicidial_campaigns ADD agent_hide_hangup ENUM('Y','N') default 'N';
+
+UPDATE system_settings SET db_schema_version='1654',db_schema_update_date=NOW() where db_schema_version < 1654;
+
+ALTER TABLE system_settings ADD allow_web_debug ENUM('0','1','2','3','4','5','6') default '0';
+
+UPDATE system_settings SET db_schema_version='1655',db_schema_update_date=NOW() where db_schema_version < 1655;
+
+ALTER TABLE vicidial_campaigns MODIFY enable_xfer_presets ENUM('DISABLED','ENABLED','STAGING','CONTACTS') default 'DISABLED';
+
+CREATE TABLE vicidial_sync_log (
+user VARCHAR(20) default '',
+start_time DATETIME NOT NULL,
+db_time DATETIME NOT NULL,
+run_time VARCHAR(20) default '0',
+php_script VARCHAR(40) NOT NULL,
+action VARCHAR(100) default '',
+lead_id INT(10) UNSIGNED default '0',
+stage VARCHAR(200) default '',
+session_name VARCHAR(40) default '',
+last_sql TEXT,
+KEY ajax_dbtime_key (db_time)
+) ENGINE=MyISAM CHARSET=utf8 COLLATE=utf8_unicode_ci;
+
+UPDATE system_settings SET db_schema_version='1656',db_schema_update_date=NOW() where db_schema_version < 1656;
+
+ALTER TABLE vicidial_lists ADD cid_group_id VARCHAR(20) default '---DISABLED---';
+
+CREATE TABLE vicidial_dial_cid_log (
+caller_code VARCHAR(30) NOT NULL,
+call_date DATETIME,
+call_type ENUM('OUT','OUTBALANCE','MANUAL','OVERRIDE','3WAY') default 'OUT',
+call_alt VARCHAR(20) default '',
+outbound_cid VARCHAR(20) default '',
+outbound_cid_type VARCHAR(20) default '',
+index (caller_code),
+index (call_date)
+) ENGINE=MyISAM;
+
+CREATE TABLE vicidial_dial_cid_log_archive LIKE vicidial_dial_cid_log;
+CREATE UNIQUE INDEX caller_code_date on vicidial_dial_cid_log_archive (caller_code,call_date);
+
+UPDATE system_settings SET db_schema_version='1657',db_schema_update_date=NOW() where db_schema_version < 1657;
+
+ALTER TABLE vicidial_campaigns ADD ig_xfer_list_sort ENUM('GROUP_ID_UP','GROUP_ID_DOWN','GROUP_NAME_UP','GROUP_NAME_DOWN','PRIORITY_UP','PRIORITY_DOWN') default 'GROUP_ID_UP';
+
+UPDATE system_settings SET db_schema_version='1658',db_schema_update_date=NOW() where db_schema_version < 1658;
+
+ALTER TABLE vicidial_inbound_dids ADD pre_filter_recent_call VARCHAR(20) default '';
+ALTER TABLE vicidial_inbound_dids ADD pre_filter_recent_extension VARCHAR(50) default '';
+
+UPDATE system_settings SET db_schema_version='1659',db_schema_update_date=NOW() where db_schema_version < 1659;
+
+ALTER TABLE vicidial_campaigns ADD script_tab_frame_size VARCHAR(10) default 'DEFAULT';
+
+UPDATE system_settings SET db_schema_version='1660',db_schema_update_date=NOW() where db_schema_version < 1660;
+
+ALTER TABLE vicidial_users ADD user_group_two VARCHAR(20) default '';
+
+UPDATE system_settings SET db_schema_version='1661',db_schema_update_date=NOW() where db_schema_version < 1661;
+
+ALTER TABLE vicidial_lists ADD dial_prefix VARCHAR(20) default '';
+
+ALTER TABLE system_settings ADD max_logged_in_agents ENUM('0','1','2','3','4','5','6','7') default '0';
+
+ALTER TABLE vicidial_campaigns ADD max_logged_in_agents SMALLINT(5) UNSIGNED default '0';
+
+UPDATE system_settings SET db_schema_version='1662',db_schema_update_date=NOW() where db_schema_version < 1662;
+
+ALTER TABLE system_settings ADD user_codes_admin ENUM('0','1','2','3','4','5','6','7') default '0';
+
+INSERT INTO vicidial_settings_containers(container_id,container_notes,container_type,user_group,container_entry) VALUES ('USER_CODES_SYSTEM','User Codes List','OTHER','---ALL---','');
+
+UPDATE system_settings SET db_schema_version='1663',db_schema_update_date=NOW() where db_schema_version < 1663;
+
+ALTER TABLE servers ADD `conf_engine` ENUM('MEETME','CONFBRIDGE') COLLATE utf8_unicode_ci DEFAULT 'MEETME';
+ALTER TABLE servers ADD `conf_update_interval` SMALLINT(6) NOT NULL DEFAULT 60;
+
+CREATE TABLE `vicidial_confbridges` (   
+`conf_exten` INT(7) UNSIGNED NOT NULL,
+`server_ip` VARCHAR(15) COLLATE utf8_unicode_ci NOT NULL,
+`extension` VARCHAR(100) COLLATE utf8_unicode_ci DEFAULT NULL,
+`leave_3way` ENUM('0','1') COLLATE utf8_unicode_ci DEFAULT '0',
+`leave_3way_datetime` DATETIME DEFAULT NULL,
+UNIQUE KEY `serverconf` (`server_ip`,`conf_exten`),
+UNIQUE KEY `conf_exten` (`conf_exten`,`server_ip`) 
+) ENGINE=MyISAM DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;
+
+UPDATE system_settings SET db_schema_version='1664',db_schema_update_date=NOW() where db_schema_version < 1664;
+
+CREATE TABLE `verm_custom_report_holder` (
+`custom_report_id` INT(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+`user` VARCHAR(20) COLLATE utf8_unicode_ci DEFAULT NULL,
+`report_name` VARCHAR(100) COLLATE utf8_unicode_ci DEFAULT NULL,
+`report_parameters` TEXT COLLATE utf8_unicode_ci DEFAULT NULL,
+`modify_date` TIMESTAMP NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+PRIMARY KEY (`custom_report_id`),
+UNIQUE KEY `verm_custom_report_holder_pkey` (`user`,`report_name`)
+) ENGINE=MyISAM DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;
+
+CREATE TABLE `wallboard_widgets` (
+`widget_id` VARCHAR(100) COLLATE utf8_unicode_ci NOT NULL,
+`wallboard_report_id` VARCHAR(100) COLLATE utf8_unicode_ci DEFAULT NULL,
+`view_id` VARCHAR(100) COLLATE utf8_unicode_ci DEFAULT NULL,
+`widget_title` VARCHAR(100) COLLATE utf8_unicode_ci DEFAULT NULL,
+`widget_type` VARCHAR(30) COLLATE utf8_unicode_ci DEFAULT NULL,
+`widget_width` TINYINT(3) UNSIGNED DEFAULT NULL,
+`widget_is_row` ENUM('Y','N') COLLATE utf8_unicode_ci DEFAULT 'N',
+`widget_rowspan` TINYINT(3) UNSIGNED DEFAULT 1,
+`widget_text` TEXT COLLATE utf8_unicode_ci DEFAULT NULL,
+`widget_queue` VARCHAR(20) COLLATE utf8_unicode_ci DEFAULT NULL,
+`widget_sla_level` VARCHAR(5) COLLATE utf8_unicode_ci DEFAULT NULL,
+`widget_agent` VARCHAR(20) COLLATE utf8_unicode_ci DEFAULT NULL,
+`widget_color` VARCHAR(20) COLLATE utf8_unicode_ci DEFAULT NULL,
+`widget_color2` VARCHAR(20) COLLATE utf8_unicode_ci DEFAULT NULL,
+`widget_alarms` TEXT COLLATE utf8_unicode_ci DEFAULT NULL,
+`widget_order` TINYINT(3) UNSIGNED DEFAULT NULL,
+PRIMARY KEY (`widget_id`)
+) ENGINE=MyISAM DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;
+
+CREATE TABLE `wallboard_reports` (
+`wallboard_report_id` VARCHAR(20) COLLATE utf8_unicode_ci NOT NULL,
+`wallboard_name` VARCHAR(100) COLLATE utf8_unicode_ci DEFAULT NULL,
+`wallboard_views` TINYINT(3) UNSIGNED DEFAULT NULL,
+`date_created` DATETIME DEFAULT NULL,
+`last_modified` TIMESTAMP NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+`data_refresh_rate` SMALLINT(5) UNSIGNED DEFAULT 10,
+`view_refresh_rate` SMALLINT(5) UNSIGNED DEFAULT 30,
+PRIMARY KEY (`wallboard_report_id`)
+) ENGINE=MyISAM DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;
+
+INSERT INTO `wallboard_widgets` VALUES ('queues_widget_1','AGENTS_AND_QUEUES','queues','','TEXT',5,'N',1,'Queue Information','','',NULL,'','',NULL,2),('queues_widget_0','AGENTS_AND_QUEUES','queues','','LOGO',2,'N',1,NULL,'','',NULL,'','',NULL,1),('queues_widget_2','AGENTS_AND_QUEUES','queues','SLA Level %','SLA_LEVEL_PCT',1,'N',1,NULL,'','>60',NULL,'','',NULL,3),('queues_widget_3','AGENTS_AND_QUEUES','queues','Outbound calls','LIVE_QUEUE_INFO',1,'N',1,'','201201','','','','','yellow_alarm,|red_alarm,',4),('queues_widget_4','AGENTS_AND_QUEUES','queues','USA Ded Inbound','LIVE_QUEUE_INFO',1,'N',1,'','ALL_IN','','','','','yellow_alarm,|red_alarm,',5),('queues_widget_5','AGENTS_AND_QUEUES','queues','MLA Ded Inbound','LIVE_QUEUE_INFO',1,'N',1,'','SALESLINE','','','','','yellow_alarm,|red_alarm,',6),('queues_widget_6','AGENTS_AND_QUEUES','queues','N Waiting Calls','N_WAITING_CALLS',1,'N',1,NULL,'','',NULL,'','',NULL,7),('queues_widget_7','AGENTS_AND_QUEUES','queues','Offered Calls','OFFERED_CALLS',1,'N',1,NULL,'','',NULL,'','',NULL,8),('queues_widget_8','AGENTS_AND_QUEUES','queues','Answered Calls','ANSWERED_CALLS',1,'N',1,NULL,'','',NULL,'','',NULL,9),('queues_widget_9','AGENTS_AND_QUEUES','queues','Lost Calls','LOST_CALLS',1,'N',1,NULL,'','',NULL,'','',NULL,10),('queues_widget_10','AGENTS_AND_QUEUES','queues','Longest Wait','LONGEST_WAIT',1,'N',1,NULL,'','',NULL,'','',NULL,11),('queues_widget_11','AGENTS_AND_QUEUES','queues','Live Queues','LIVE_QUEUES',1,'Y',1,NULL,'','',NULL,'','',NULL,12),('queues_widget_12','AGENTS_AND_QUEUES','queues','Live Calls','LIVE_CALLS',1,'Y',2,NULL,'','',NULL,'','',NULL,13),('agent_widget_0','AGENTS_AND_QUEUES','agents','','LOGO',2,'N',1,NULL,'','',NULL,'','',NULL,1),('agent_widget_1','AGENTS_AND_QUEUES','agents','N Waiting Calls','N_WAITING_CALLS',1,'N',1,NULL,'','',NULL,'','',NULL,2),('agent_widget_2','AGENTS_AND_QUEUES','agents','Agents Ready','AGENTS_READY',1,'N',1,NULL,'','',NULL,'','',NULL,3),('agent_widget_3','AGENTS_AND_QUEUES','agents','Agents On Call','N_AGENTS_ON_CALL',1,'N',1,NULL,'','',NULL,'','',NULL,4),('agent_widget_4','AGENTS_AND_QUEUES','agents','N Answered Calls','N_ANSWERED_CALLS',1,'N',1,NULL,'','',NULL,'','',NULL,5),('agent_widget_5','AGENTS_AND_QUEUES','agents','Clock','CLOCK',1,'N',1,NULL,'','',NULL,'','',NULL,6),('agent_widget_6','AGENTS_AND_QUEUES','agents','Live Agents','LIVE_AGENTS',1,'Y',3,NULL,'','',NULL,'','',NULL,7);
+
+INSERT INTO `wallboard_reports` VALUES ('AGENTS_AND_QUEUES','Agents and Queues',2,'2022-01-18 09:00:23','2022-01-18 15:00:23',10,30);
+
+INSERT INTO vicidial_settings_containers(container_id,container_notes,container_type,user_group,container_entry) VALUES ('VERM_STATUS_NAMES_OVERRIDE','Override dialer status names in enhanced reporting','OTHER','---ALL---','; For each status name you want overridden, type the status followed by\r\n; a pipe, then the new status name\r\n; Ex:\r\n; NZ|Taumatawhakatangihangakoauauotamateaturipukakapikimaungahoronukupoka\r\n201214|Request To Cancel\r\n210200|No Answer-Incomplete Call\r\n210201|Contact Established\r\n210202|Provider Review - HB\r\n210203|Promise to Pay\r\n210204|Setup Payment Plan\r\n210205|Research-Inquiry\r\n210206|Voice Mail Left - HB\r\n210207|Do Not Call\r\n210208|Appeal Verification\r\n210209|Bad Phone\r\n210210|Bad Address\r\n210211|Direct Pay Verification\r\n210213|Provider Approved\r\n210215|Update Notes Only\r\n210216|Voicemail-No Status Change\r\n210217|Sent Letter Request - HB\r\n210218|Auto VoiceMail Left - HB\r\n210219|Auto VoiceMail-No Status Change\r\n210302|Provider Review - LB\r\n210306|Voice Mail Left - LB\r\n210317|Sent Letter Request - LB\r\n210318|Auto VoiceMail Left - LB\r\n211503|Provider - COVID-19\r\n211603|Transferred Call to MLA\r\n'), ('VERM_REPORT_OPTIONS','Container for customizing VERM report output','OTHER','---ALL---','; This is the report queue used if none is chosen by the user\r\n; It\'s preloaded in some forms as well\r\nVERM_default_report_queue => ALL\r\n\r\n; If there are statuses to exclude from reports, list them here\r\n; Separate with commas.  Default is AFTHRS\r\nexc_addtl_statuses => AFTHRS\r\n\r\n; Set the below value to 1 (or anything non-blank/non-zero) in order to \r\n; show the agents ID in addition to their full name in the report results\r\nshow_full_agent_info => 1\r\n\r\n; Some reports count \"lost\" calls - which are defined by the below variable\r\n; listing what you define as \"lost\" dispos.  Separate with commas.\r\nlost_statuses => LOST,210208,DISPO\r\n\r\n; You can create a detailed IVR survey report for ingroups by defining\r\n; \"ivr_survey_ingroups_detail\" and \"ivr_survey_ingroups_voicemails.\"\r\n; For \"details\", supply an ingroup used as a tracking group on call menus.\r\n; Then, add a pipe and after that list all call menus that use the ingroup\r\n; as the tracking group, separating each with a comma\r\n; To track whether the calls went to voicemail, list every call menu/option\r\n; combination that goes to voicemail, separating the call menu from the \r\n; option with a pipe.  One callmenu/option combo per line.\r\nivr_survey_ingroups_detail => 521205|561401,561402,561403,561404,561505\r\nivr_survey_ingroups_voicemails => 561505|t\r\n\r\n; #####################################################\r\n; # ALL of the below are used in the wallboard report #\r\n; #####################################################\r\nVERM_default_outb_widget_queue => ALL_OUT\r\nVERM_default_inb_widget_queue1 => 514915v_USA_Shared\r\nVERM_default_inb_widget_queue2 => 515915v_MLA_Shared\r\n\r\n; Used specifically for the SLA widget\r\n; Uses ingroups - separate multiple ingroups by commas\r\n; Comment out or leave blank to count all ingroups\r\nSLA_LEVEL_PCT_ingroups => 514915v,515915v\r\n\r\n; This removes remote agents from the wallboard reports\r\n; Comment out to include remote agents (or set to zero)\r\nomit_remote_agents => 1\r\n\r\n\r\n; #### AUTO DOWNLOAD ####\r\n; If the "total calls" value on any report requested exceeds the below \r\n; limit, automatically download the three "DETAILS" reports instead\r\n; of attempting to display that many records on-screen\r\nauto_download_limit => 50000\r\n\r\n; #### OUTCOMES report overrides ####\r\n; Use "outcome_lagged_status_overrides" for conditions where the call \r\n; record in the vicidial_log or vicidial_closer_log table has no uniqueid\r\n; value despite having a status/outcome, which can indicate a call \r\n; affected by network lag for certain statuses.  This will change the call \r\n; status to "LAGGED".  Separate statuses with commas.  Default is the \r\n; automatic "PU" status.\r\noutcome_lagged_status_overrides => PU\r\n\r\n; Use "unknown_network_statuses" to change call statuses to read "Network/\r\n; LAGGED" on the OUTCOMES report. Separate statuses with commas.\r\n; IMPORTANT: if you are using the outcome_lagged_status_overrides option \r\n; above, make sure "LAGGED" is one of the unknown_network_statuses here\r\n; unknown_network_statuses => LAGGED\r\n\r\n; Use "outcome_status_overrides" to change one status to another on the \r\n; OUTCOMES report.  Overrides are comma-separated pairs of dispositions  \r\n; where the first disposition is the disposition to change, and the second\r\n; is the disposition to change to.  Separate pairs with a pipe character as\r\n; in the below example.  Off by default.\r\n; outcome_status_overrides => CBHOLD,DISPO|XFER,AL');
+
+UPDATE system_settings SET db_schema_version='1665',db_schema_update_date=NOW() where db_schema_version < 1665;
+
+ALTER TABLE vicidial_user_groups ADD script_id VARCHAR(20) default '';
+
+ALTER TABLE vicidial_campaigns ADD user_group_script ENUM('DISABLED','ENABLED') default 'DISABLED';
+
+UPDATE system_settings SET db_schema_version='1666',db_schema_update_date=NOW() where db_schema_version < 1666;
+
+ALTER TABLE vicidial_users ADD failed_login_attempts_today MEDIUMINT(8) UNSIGNED default '0';
+ALTER TABLE vicidial_users ADD failed_login_count_today SMALLINT(6) UNSIGNED default '0';
+ALTER TABLE vicidial_users ADD failed_last_ip_today VARCHAR(50) default '';
+ALTER TABLE vicidial_users ADD failed_last_type_today VARCHAR(20) default '';
+
+CREATE TABLE vicidial_user_logins_daily (
+user VARCHAR(20),
+login_day DATE,
+last_login_date DATETIME default '2001-01-01 00:00:01',
+last_ip VARCHAR(50) default '',
+failed_login_attempts_today MEDIUMINT(8) UNSIGNED default '0',
+failed_login_count_today SMALLINT(6) UNSIGNED default '0',
+failed_last_ip_today VARCHAR(50) default '',
+failed_last_type_today VARCHAR(20) default '',
+index (user)
+) ENGINE=MyISAM;
+
+CREATE UNIQUE INDEX vicidial_user_logins_daily_user on vicidial_user_logins_daily(login_day, user);
+
+UPDATE system_settings SET db_schema_version='1667',db_schema_update_date=NOW() where db_schema_version < 1667;
+
+ALTER TABLE system_settings ADD login_kickall ENUM('0','1','2','3','4','5','6','7') default '0';
+
+UPDATE system_settings SET db_schema_version='1668',db_schema_update_date=NOW() where db_schema_version < 1668;
+
+ALTER TABLE phones ADD webphone_settings VARCHAR(40) default 'VICIPHONE_SETTINGS';
+
+INSERT INTO vicidial_settings_containers(container_id,container_notes,container_type,user_group,container_entry) VALUES ('VICIPHONE_SETTINGS','VICIphone WebRTC Extra Settings','WEBPHONE_SETTINGS','---ALL---','# determines if automatic gain control is enabled\nautoGain : 0\n\n# determines if echo cancellation is enabled\nechoCan : 0\n\n# determines if noise suppression is enabled\nnoiseSup :0\n\n# determines if the reg_exten is called upon successful registration\ndialRegExten : 1\n\n# determines the regional sound to use for progress audio\nprogReg : na\n\n# English translation phrases\nlangAttempting:"Attempting"\nlangConnected:"WS Connected"\nlangDisconnected:"WS Disconnected"\nlangExten:"Extension"\nlangIncall:"Incall"\nlangInit:"Initializing..."\nlangRedirect:"Redirect"\nlangRegFailed:"Reg. Failed"\nlangRegistering:"Registering"\nlangRegistered:"Registered"\nlangReject:"Rejected"\nlangRinging:"Ringing"\nlangSend:"Send"\nlangTrying:"Trying"\nlangUnregFailed:"Unreg. Failed"\nlangUnregistered:"Unregistered"\nlangUnregistering:"Unregistering"\nlangWebrtcError:"Something went wrong with WebRTC. Either your browser does not support the necessary WebRTC functions, you did not allow your browser to access the microphone, or there is a configuration issue. Please check your browsers error console for more details. For a list of compatible browsers please vist http://webrtc.org/"');
+
+UPDATE system_settings SET db_schema_version='1669',db_schema_update_date=NOW() where db_schema_version < 1669;
+
+CREATE TABLE vicidial_long_extensions (
+le_id INT(9) UNSIGNED AUTO_INCREMENT PRIMARY KEY NOT NULL,
+extension VARCHAR(1000),
+call_date DATETIME default '2001-01-01 00:00:01',
+source VARCHAR(20) default '',
+index (call_date)
+) ENGINE=MyISAM;
+
+UPDATE system_settings SET db_schema_version='1670',db_schema_update_date=NOW() where db_schema_version < 1670;
+
+CREATE INDEX vicq_group_id on vicidial_inbound_callback_queue(group_id);
+CREATE INDEX vicq_icbq_date on vicidial_inbound_callback_queue(icbq_date);
+CREATE INDEX vicq_call_date on vicidial_inbound_callback_queue(call_date);
+
+CREATE INDEX vicqa_group_id on vicidial_inbound_callback_queue_archive(group_id);
+CREATE INDEX vicqa_icbq_date on vicidial_inbound_callback_queue_archive(icbq_date);
+CREATE INDEX vicqa_call_date on vicidial_inbound_callback_queue_archive(call_date);
+
+UPDATE system_settings SET db_schema_version='1671',db_schema_update_date=NOW() where db_schema_version < 1671;
+
+ALTER TABLE vicidial_inbound_groups MODIFY group_color VARCHAR(20);
+
+ALTER TABLE vicidial_scripts MODIFY script_color VARCHAR(20) default 'white';
+
+UPDATE system_settings SET db_schema_version='1672',db_schema_update_date=NOW() where db_schema_version < 1672;
+
+CREATE TABLE vicidial_postal_codes_cities (
+postal_code VARCHAR(10) NOT NULL,
+state VARCHAR(4),
+city VARCHAR(60),
+county VARCHAR(60),
+latitude VARCHAR(17),
+longitude VARCHAR(17),
+areacode CHAR(3),
+country_code SMALLINT(5) UNSIGNED,
+country CHAR(3),
+index (postal_code)
+) ENGINE=MyISAM;
+
+UPDATE system_settings SET db_schema_version='1673',db_schema_update_date=NOW() where db_schema_version < 1673;
+
+ALTER TABLE vicidial_inbound_groups MODIFY on_hook_cid VARCHAR(30) default 'CUSTOMER_PHONE_RINGAGENT';
+
+UPDATE system_settings SET db_schema_version='1674',db_schema_update_date=NOW() where db_schema_version < 1674;
+
+ALTER TABLE vicidial_campaigns ADD agent_hangup_route ENUM('HANGUP','MESSAGE','EXTENSION','IN_GROUP','CALLMENU') default 'HANGUP';
+ALTER TABLE vicidial_campaigns ADD agent_hangup_value TEXT;
+ALTER TABLE vicidial_campaigns ADD agent_hangup_ig_override ENUM('Y','N') default 'N';
+UPDATE vicidial_campaigns SET agent_hangup_value='' where agent_hangup_value IS NULL;
+
+UPDATE system_settings SET db_schema_version='1675',db_schema_update_date=NOW() where db_schema_version < 1675;
+
+CREATE TABLE gateway_recording_log (
+gateway_recording_id INT(10) UNSIGNED AUTO_INCREMENT PRIMARY KEY NOT NULL,
+recording_log_id INT(10) UNSIGNED default '0',
+call_direction ENUM('INBOUND','OUTBOUND','NA') default 'NA',
+call_id VARCHAR(40) default '',
+lead_id INT(9) UNSIGNED,
+uniqueid VARCHAR(20) NOT NULL,
+server_ip VARCHAR(15),
+caller_id_number VARCHAR(18),
+caller_id_name VARCHAR(20),
+extension VARCHAR(100),
+start_time DATETIME,
+end_time DATETIME,
+length_in_sec MEDIUMINT(8) UNSIGNED default '0',
+filename VARCHAR(100),
+location VARCHAR(255),
+index(start_time),
+index(call_id),
+index(lead_id)
+) ENGINE=MyISAM;
+
+CREATE TABLE vicidial_did_gateway_log (
+uniqueid VARCHAR(20) NOT NULL,
+channel VARCHAR(100) NOT NULL,
+server_ip VARCHAR(15) NOT NULL,
+caller_id_number VARCHAR(18),
+caller_id_name VARCHAR(20),
+extension VARCHAR(100),
+call_date DATETIME,
+VICIrecGatewayID VARCHAR(30) default '',
+index (uniqueid),
+index (VICIrecGatewayID),
+index (extension),
+index (call_date)
+) ENGINE=MyISAM;
+
+UPDATE system_settings SET db_schema_version='1676',db_schema_update_date=NOW() where db_schema_version < 1676;
+
+update vicidial_settings_containers set container_entry=CONCAT(container_entry, '\r\n\r\n; #### AUTO DOWNLOAD ####\r\n; If the "total calls" value on any report requested exceeds the below \r\n; limit, automatically download the three "DETAILS" reports instead\r\n; of attempting to display that many records on-screen\r\nauto_download_limit => 50000\r\n\r\n; #### OUTCOMES report overrides ####\r\n; Use "outcome_lagged_status_overrides" for conditions where the call \r\n; record in the vicidial_log or vicidial_closer_log table has no uniqueid\r\n; value despite having a status/outcome, which can indicate a call \r\n; affected by network lag for certain statuses.  This will change the call \r\n; status to "LAGGED".  Separate statuses with commas.  Default is the \r\n; automatic "PU" status.\r\noutcome_lagged_status_overrides => PU\r\n\r\n; Use "unknown_network_statuses" to change call statuses to read "Network/\r\n; LAGGED" on the OUTCOMES report. Separate statuses with commas.\r\n; IMPORTANT: if you are using the outcome_lagged_status_overrides option \r\n; above, make sure "LAGGED" is one of the unknown_network_statuses here\r\n; unknown_network_statuses => LAGGED\r\n\r\n; Use "outcome_status_overrides" to change one status to another on the \r\n; OUTCOMES report.  Overrides are comma-separated pairs of dispositions  \r\n; where the first disposition is the disposition to change, and the second\r\n; is the disposition to change to.  Separate pairs with a pipe character as\r\n; in the below example.  Off by default.\r\n; outcome_status_overrides => CBHOLD,DISPO|XFER,AL') WHERE container_id='VERM_REPORT_OPTIONS' and container_entry NOT LIKE "%outcome_status_overrides%";
+
+UPDATE system_settings SET db_schema_version='1677',db_schema_update_date=NOW() where db_schema_version < 1677;
+
+ALTER TABLE servers ADD ara_url TEXT;
+
+ALTER TABLE vicidial_campaigns ADD show_confetti ENUM('DISABLED','SALES','CALLBACKS','SALES_AND_CALLBACKS') default 'DISABLED';
+
+INSERT INTO vicidial_settings_containers (container_id,container_notes,container_type,user_group,container_entry) VALUES ('CONFETTI_SETTINGS', 'Confetti settings for screen display', 'OTHER', '---ALL---', '; Confetti settings, to add visual interest to certain events\r\n; duration is how long the confetti animation runs, maxParticleCount is the\r\n; max number of confetti \"pieces\", and particleSpeed is how fast they float\r\nduration => 2\r\nmaxParticleCount => 2350\r\nparticleSpeed => 2\r\n');
+
+ALTER TABLE system_settings ADD abandon_check_queue ENUM('0','1','2','3','4','5','6','7') default '0';
+
+CREATE TABLE vicidial_abandon_check_queue (
+abandon_check_id INT(10) UNSIGNED AUTO_INCREMENT PRIMARY KEY NOT NULL,
+lead_id INT(9) UNSIGNED,
+phone_number VARCHAR(18) default '',
+call_id VARCHAR(40) default '',
+abandon_time DATETIME,
+dispo VARCHAR(6),
+check_status ENUM('NEW','REJECT','QUEUE','PROCESSING','COMPLETE','CONNECTED','ARCHIVE') default 'NEW',
+reject_reason VARCHAR(40) default '',
+source VARCHAR(20),
+index(abandon_time),
+index(phone_number),
+index(lead_id)
+) ENGINE=MyISAM;
+
+CREATE TABLE vicidial_abandon_check_queue_archive LIKE vicidial_abandon_check_queue;
+ALTER TABLE vicidial_abandon_check_queue_archive MODIFY abandon_check_id INT(9) UNSIGNED NOT NULL;
+
+UPDATE system_settings SET db_schema_version='1678',db_schema_update_date=NOW() where db_schema_version < 1678;
+
+ALTER TABLE system_settings ADD agent_notifications ENUM('0','1','2','3','4','5','6','7') default '0';
+
+CREATE TABLE vicidial_agent_notifications (
+notification_id INT(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+entry_date DATETIME DEFAULT current_timestamp(),
+recipient VARCHAR(20) DEFAULT NULL,
+recipient_type ENUM('USER','USER_GROUP','CAMPAIGN','ALT_DISPLAY') DEFAULT NULL,
+notification_date DATETIME DEFAULT current_timestamp(),
+notification_retry ENUM('Y','N') DEFAULT 'N',
+notification_text TEXT DEFAULT NULL,
+text_size TINYINT(3) UNSIGNED DEFAULT 12,
+text_font VARCHAR(30) DEFAULT 'Arial',
+text_weight VARCHAR(30) DEFAULT 'bold',
+text_color VARCHAR(15) DEFAULT NULL,
+show_confetti ENUM('Y','N') DEFAULT 'N',
+confetti_options VARCHAR(15) DEFAULT NULL,
+notification_status ENUM('QUEUED','READY','SENT','DEAD') DEFAULT NULL,
+PRIMARY KEY (notification_id),
+KEY recipient (recipient),
+KEY notification_date (notification_date)
+) ENGINE=MyISAM;
+
+CREATE TABLE vicidial_agent_notifications_archive LIKE vicidial_agent_notifications;
+ALTER TABLE vicidial_agent_notifications_archive MODIFY notification_id INT(10) UNSIGNED NOT NULL;
+
+CREATE TABLE vicidial_agent_notifications_queue (
+queue_id INT(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+notification_id INT(10) UNSIGNED DEFAULT NULL,
+queue_date DATETIME DEFAULT current_timestamp(),
+user VARCHAR(20) DEFAULT NULL,
+PRIMARY KEY (queue_id)
+) ENGINE=MyISAM;
+
+UPDATE system_settings SET db_schema_version='1679',db_schema_update_date=NOW() where db_schema_version < 1679;
+
+INSERT INTO vicidial_statuses (status,status_name) VALUES ('ADAIR', 'Dead Air Auto');
+
+UPDATE system_settings SET db_schema_version='1680',db_schema_update_date=NOW() where db_schema_version < 1680;
+
+CREATE TABLE vicidial_user_dial_log (
+caller_code VARCHAR(30) NOT NULL,
+user VARCHAR(20) default '',
+call_date DATETIME,
+call_type VARCHAR(10) default '',
+notes VARCHAR(100) default '',
+index (caller_code),
+index (user),
+index (call_date)
+) ENGINE=MyISAM;
+
+CREATE TABLE vicidial_user_dial_log_archive LIKE vicidial_user_dial_log;
+CREATE UNIQUE INDEX vdudl on vicidial_user_dial_log_archive (caller_code,call_date,user);
+
+UPDATE system_settings SET db_schema_version='1681',db_schema_update_date=NOW() where db_schema_version < 1681;
+
+CREATE TABLE vicidial_live_agents_details (
+user VARCHAR(20) NOT NULL PRIMARY KEY,
+update_date DATETIME,
+web_ip VARCHAR(45) default '',
+latency MEDIUMINT(7) default '0',
+latency_min_avg MEDIUMINT(7) default '0',
+latency_min_peak MEDIUMINT(7) default '0',
+latency_hour_avg MEDIUMINT(7) default '0',
+latency_hour_peak MEDIUMINT(7) default '0',
+latency_today_avg MEDIUMINT(7) default '0',
+latency_today_peak MEDIUMINT(7) default '0',
+index (user),
+index (update_date)
+) ENGINE=MyISAM;
+
+CREATE TABLE vicidial_agent_latency_log (
+user VARCHAR(20) NOT NULL,
+log_date DATETIME,
+latency MEDIUMINT(7) default '0',
+web_ip VARCHAR(45) default '',
+index (user),
+index (log_date)
+) ENGINE=MyISAM;
+
+CREATE TABLE vicidial_agent_latency_summary_log (
+user VARCHAR(20) NOT NULL,
+log_date DATETIME,
+web_ip VARCHAR(45) default '',
+latency_avg MEDIUMINT(7) default '0',
+latency_peak MEDIUMINT(7) default '0',
+latency_count SMALLINT(4) default '0',
+index (user),
+index (log_date)
+) ENGINE=MyISAM;
+
+CREATE TABLE vicidial_agent_latency_log_archive LIKE vicidial_agent_latency_log;
+CREATE UNIQUE INDEX vdalla on vicidial_agent_latency_log_archive (user,log_date);
+
+CREATE TABLE vicidial_agent_latency_summary_log_archive LIKE vicidial_agent_latency_summary_log;
+CREATE UNIQUE INDEX vdalsla on vicidial_agent_latency_summary_log_archive (user,log_date,web_ip);
+
+UPDATE system_settings SET db_schema_version='1682',db_schema_update_date=NOW() where db_schema_version < 1682;
+
+ALTER TABLE system_settings ADD demographic_quotas ENUM('0','1','2','3','4','5','6','7') default '0';
+ALTER TABLE system_settings ADD log_latency_gaps ENUM('0','1','2','3','4','5','6','7') default '1';
+
+ALTER TABLE vicidial_campaigns ADD demographic_quotas ENUM('DISABLED','ENABLED','INVALID','COMPLETE') default 'DISABLED';
+ALTER TABLE vicidial_campaigns ADD demographic_quotas_container VARCHAR(40) default 'DISABLED';
+ALTER TABLE vicidial_campaigns ADD demographic_quotas_rerank ENUM('NO','NOW','HOUR','MINUTE','NOW_HOUR') default 'NO';
+ALTER TABLE vicidial_campaigns ADD demographic_quotas_last_rerank DATETIME default '2000-01-01 00:00:00';
+ALTER TABLE vicidial_campaigns ADD demographic_quotas_list_resets ENUM('AUTO','MANUAL') default 'MANUAL';
+
+CREATE TABLE vicidial_demographic_quotas_goals (
+vdqg_id INT(10) UNSIGNED AUTO_INCREMENT PRIMARY KEY NOT NULL,
+campaign_id VARCHAR(8) default '',
+demographic_quotas_container VARCHAR(40) default '',
+quota_field VARCHAR(20) default '',
+quota_field_order TINYINT(3) default '0',
+quota_value VARCHAR(100) default '',
+quota_value_order TINYINT(3) default '0',
+quota_goal MEDIUMINT(7) default '0',
+quota_count MEDIUMINT(7) default '0',
+quota_leads_total MEDIUMINT(7) default '0',
+quota_leads_active MEDIUMINT(7) default '0',
+quota_status VARCHAR(10) default 'ACTIVE',
+quota_modify_date DATETIME,
+last_lead_id INT(9) UNSIGNED default '0',
+last_list_id BIGINT(14) UNSIGNED default '0',
+last_call_date DATETIME,
+last_status VARCHAR(6) default '',
+index(campaign_id),
+index(quota_field),
+index(quota_value),
+unique index vdqgi (campaign_id,quota_field,quota_field_order,quota_value,quota_value_order)
+) ENGINE=MyISAM;
+
+CREATE TABLE vicidial_latency_gaps (
+user VARCHAR(20) default '',
+user_ip VARCHAR(45) default '',
+gap_date DATETIME,
+gap_length MEDIUMINT(5) UNSIGNED default '0',
+last_login_date DATETIME,
+check_date DATETIME,
+index(user),
+index(gap_date),
+index(check_date),
+unique index vlgi (user,gap_date)
+) ENGINE=MyISAM;
+
+CREATE TABLE vicidial_latency_gaps_archive LIKE vicidial_latency_gaps;
+CREATE UNIQUE INDEX vdlga on vicidial_latency_gaps_archive (user,gap_date);
+
+INSERT INTO vicidial_settings_containers(container_id,container_notes,container_type,user_group,container_entry) VALUES ('HOPPER_CLI_FLAGS', 'Comand-line flags for hopper process', 'PERL_CLI', '---ALL---', '');
+
+INSERT INTO vicidial_settings_containers(container_id,container_notes,container_type,user_group,container_entry) VALUES ('AGENT_LATENCY_LOGGING','Default agent latency logging settings','PERL_CLI','---ALL---','minimum_gap => 30\r\nemail_sender => \r\nemail_list => \r\nemail_subject => Agent Network Alert');
+
+UPDATE system_settings SET db_schema_version='1683',db_schema_update_date=NOW() where db_schema_version < 1683;
+
+ALTER TABLE vicidial_campaigns ADD custom_one TEXT;
+ALTER TABLE vicidial_campaigns ADD custom_two TEXT;
+ALTER TABLE vicidial_campaigns ADD custom_three TEXT;
+ALTER TABLE vicidial_campaigns ADD custom_four TEXT;
+ALTER TABLE vicidial_campaigns ADD custom_five TEXT;
+
+ALTER TABLE vicidial_inbound_groups ADD custom_one TEXT;
+ALTER TABLE vicidial_inbound_groups ADD custom_two TEXT;
+ALTER TABLE vicidial_inbound_groups ADD custom_three TEXT;
+ALTER TABLE vicidial_inbound_groups ADD custom_four TEXT;
+ALTER TABLE vicidial_inbound_groups ADD custom_five TEXT;
+
+UPDATE vicidial_campaigns SET custom_one='' WHERE custom_one IS NULL;
+UPDATE vicidial_campaigns SET custom_two='' WHERE custom_two IS NULL;
+UPDATE vicidial_campaigns SET custom_three='' WHERE custom_three IS NULL;
+UPDATE vicidial_campaigns SET custom_four='' WHERE custom_four IS NULL;
+UPDATE vicidial_campaigns SET custom_five='' WHERE custom_five IS NULL;
+
+UPDATE vicidial_inbound_groups SET custom_one='' WHERE custom_one IS NULL;
+UPDATE vicidial_inbound_groups SET custom_two='' WHERE custom_two IS NULL;
+UPDATE vicidial_inbound_groups SET custom_three='' WHERE custom_three IS NULL;
+UPDATE vicidial_inbound_groups SET custom_four='' WHERE custom_four IS NULL;
+UPDATE vicidial_inbound_groups SET custom_five='' WHERE custom_five IS NULL;
+
+UPDATE system_settings SET db_schema_version='1684',db_schema_update_date=NOW() where db_schema_version < 1684;
+
+ALTER TABLE vicidial_users ADD modify_dial_prefix ENUM('0','1','2','3','4','5','6') default '0';
+
+UPDATE vicidial_users, system_settings SET modify_dial_prefix='1' where campaign_detail='1' and user_level >= 8 and active='Y' and db_schema_version < 1685;
+
+UPDATE system_settings SET db_schema_version='1685',db_schema_update_date=NOW() where db_schema_version < 1685;
+
+ALTER TABLE system_settings ADD inbound_credits ENUM('0','1','2','3','4','5','6','7') default '0';
+
+ALTER TABLE vicidial_users ADD inbound_credits MEDIUMINT(7) default '-1';
+
+UPDATE system_settings SET db_schema_version='1686',db_schema_update_date=NOW() where db_schema_version < 1686;
+
+ALTER TABLE system_settings ADD weekday_resets ENUM('0','1','2','3','4','5','6','7') default '0';
+
+ALTER TABLE vicidial_lists ADD weekday_resets_container VARCHAR(40) default 'DISABLED';
+
+INSERT INTO vicidial_settings_containers(container_id,container_notes,container_type,user_group,container_entry) VALUES ('EXAMPLE_LIST_WEEKDAY_RESETS','Example Weekday List Resets Container settings','LIST_WEEKDAY_RESETS','---ALL---','; weekday => reset-times in 24-hour time separated by dashes\r\nmonday => 0830-1230-1800\r\ntuesday => 0900-1400-1830\r\nwednesday => 0930-1200-1730-1900\r\nthursday => 1030-1330-1900\r\nfriday => 0800-1300-1530\r\nsaturday => 0930-1100\r\nsunday => 1000');
+
+UPDATE system_settings SET db_schema_version='1687',db_schema_update_date=NOW() where db_schema_version < 1687;
+
+ALTER TABLE vicidial_inbound_groups ADD second_alert_trigger VARCHAR(20) default 'DISABLED';
+ALTER TABLE vicidial_inbound_groups ADD second_alert_trigger_seconds INT(6) default '600';
+ALTER TABLE vicidial_inbound_groups ADD second_alert_filename VARCHAR(100) default '';
+ALTER TABLE vicidial_inbound_groups ADD second_alert_delay INT(6) default '1000';
+
+UPDATE system_settings SET db_schema_version='1688',db_schema_update_date=NOW() where db_schema_version < 1688;
+
+ALTER TABLE vicidial_inbound_groups ADD second_alert_container VARCHAR(40) default 'DISABLED';
+ALTER TABLE vicidial_inbound_groups ADD second_alert_only VARCHAR(40) default 'DISABLED';
+
+INSERT INTO vicidial_settings_containers(container_id,container_notes,container_type,user_group,container_entry) VALUES ('EXAMPLE_VID_PROMPT_SPECIAL','Example Call Menu VID Special Container settings','CM_VIDPROMPT_SPECIAL','---ALL---','list_ingroup => 102,TEST_IN2\r\nlist_ingroup => 103,TEST_IN3\r\nlist_ingroup => 104,TEST_IN4\r\ndefault_ingroup => TEST_IN5\r\nnot_found_action => new_lead\r\nnew_lead_ingroup => TEST_IN');
+
+UPDATE system_settings SET db_schema_version='1689',db_schema_update_date=NOW() where db_schema_version < 1689;
+
+ALTER TABLE vicidial_campaigns ADD dead_stop_recording ENUM('DISABLED','ALL_CALLS','OUTBOUND_ONLY','INBOUND_ONLY','AUTODIAL_ONLY','MANUAL_ONLY') default 'DISABLED';
+
+UPDATE system_settings SET db_schema_version='1690',db_schema_update_date=NOW() where db_schema_version < 1690;
+
+ALTER TABLE vicidial_campaigns ADD manual_vm_status_updates ENUM('ENABLED','DISABLED') default 'ENABLED';
+
+UPDATE system_settings SET db_schema_version='1691',db_schema_update_date=NOW() where db_schema_version < 1691;
+
+ALTER TABLE vicidial_campaigns ADD force_per_call_notes ENUM('DISABLED','ENABLED','5_CHARACTERS','15_CHARACTERS','30_CHARACTERS','100_CHARACTERS') default 'DISABLED';
+
+UPDATE system_settings SET db_schema_version='1692',db_schema_update_date=NOW() where db_schema_version < 1692;
+
+ALTER TABLE vicidial_inbound_groups ADD third_alert_trigger VARCHAR(20) default 'DISABLED';
+ALTER TABLE vicidial_inbound_groups ADD third_alert_trigger_seconds INT(6) default '600';
+ALTER TABLE vicidial_inbound_groups ADD third_alert_filename VARCHAR(100) default '';
+ALTER TABLE vicidial_inbound_groups ADD third_alert_delay INT(6) default '1000';
+ALTER TABLE vicidial_inbound_groups ADD third_alert_container VARCHAR(40) default 'DISABLED';
+ALTER TABLE vicidial_inbound_groups ADD third_alert_only VARCHAR(40) default 'DISABLED';
+
+UPDATE system_settings SET db_schema_version='1693',db_schema_update_date=NOW() where db_schema_version < 1693;
+
+CREATE TABLE vicidial_daily_rt_monitoring_log LIKE vicidial_rt_monitor_log;
+
+UPDATE system_settings SET db_schema_version='1694',db_schema_update_date=NOW() where db_schema_version < 1694;
+
+ALTER TABLE vicidial_user_groups MODIFY allowed_reports VARCHAR(4000) default 'ALL REPORTS';
+
+ALTER TABLE system_settings MODIFY reports_use_slave_db VARCHAR(4000) default '';
+
+UPDATE system_settings SET db_schema_version='1695',db_schema_update_date=NOW() where db_schema_version < 1695;
+
+ALTER TABLE vicidial_campaigns ADD agent_search_ingroup_list ENUM('DISABLED','ENABLED','ENABLED_OVERRIDE') default 'DISABLED';
+
+ALTER TABLE vicidial_inbound_groups ADD agent_search_list VARCHAR(20) default '';
+
+UPDATE system_settings SET db_schema_version='1696',db_schema_update_date=NOW() where db_schema_version < 1696;
+
+ALTER TABLE phones MODIFY conf_secret VARCHAR(100) default 'test';
+
+ALTER TABLE servers MODIFY conf_secret VARCHAR(100) default 'test';
+
+UPDATE system_settings SET db_schema_version='1697',db_schema_update_date=NOW() where db_schema_version < 1697;
+
+ALTER TABLE system_settings ADD two_factor_auth_agent_hours SMALLINT(5) default '0';
+
+UPDATE system_settings SET db_schema_version='1698',db_schema_update_date=NOW() where db_schema_version < 1698;
+
+ALTER TABLE system_settings ADD highest_lead_id VARCHAR(20) default '0';
+
+ALTER TABLE system_settings ADD hopper_hold_inserts ENUM('0','1','2','3','4','5','6','7') default '0';
+
+ALTER TABLE vicidial_campaigns ADD hopper_hold_inserts ENUM('ENABLED','DISABLED','AUTONEXT') default 'DISABLED';
+
+ALTER TABLE vicidial_hopper MODIFY status ENUM('READY','QUEUE','INCALL','DONE','HOLD','DNC','RHOLD','RQUEUE') default 'READY';
+
+UPDATE system_settings SET db_schema_version='1699',db_schema_update_date=NOW() where db_schema_version < 1699;
+
+CREATE TABLE vicidial_3way_press_live (
+call_date DATETIME(6),
+caller_code VARCHAR(30) NOT NULL,
+call_3way_id VARCHAR(30) NOT NULL,
+lead_id INT(9) UNSIGNED,
+phone_number VARCHAR(18),
+dialstring VARCHAR(28),
+outbound_cid VARCHAR(20),
+user VARCHAR(20),
+session_id VARCHAR(20),
+server_ip VARCHAR(15),
+session_id_3way VARCHAR(20) default '',
+status VARCHAR(40),
+index(call_date),
+index(caller_code),
+index(call_3way_id),
+index(lead_id)
+) ENGINE=MyISAM;
+
+CREATE TABLE vicidial_3way_press_log (
+call_date DATETIME(6),
+caller_code VARCHAR(30) NOT NULL,
+call_3way_id VARCHAR(30) NOT NULL,
+lead_id INT(9) UNSIGNED,
+phone_number VARCHAR(18),
+dialstring VARCHAR(28),
+outbound_cid VARCHAR(20),
+user VARCHAR(20),
+session_id VARCHAR(20),
+server_ip VARCHAR(15),
+session_id_3way VARCHAR(20) default '',
+result TEXT,
+index(call_date),
+index(caller_code),
+index(call_3way_id),
+index(lead_id)
+) ENGINE=MyISAM;
+
+CREATE TABLE vicidial_3way_press_log_archive LIKE vicidial_3way_press_log;
+CREATE UNIQUE INDEX vdpla on vicidial_3way_press_log_archive (call_date,caller_code,user);
+
+UPDATE system_settings SET db_schema_version='1700',db_schema_update_date=NOW() where db_schema_version < 1700;
+
+ALTER TABLE vicidial_users ADD hci_enabled ENUM('0','1','2','3','4','5','6') default '0';
+
+CREATE TABLE vicidial_hci_live_agents (
+user VARCHAR(20),
+campaign_id VARCHAR(8),
+user_ip VARCHAR(45) default '',
+login_time DATETIME,
+last_call_time DATETIME,
+last_update_time TIMESTAMP,
+status VARCHAR(40),
+lead_id INT(9) UNSIGNED default '0',
+phone_number VARCHAR(18),
+random_id INT(8) UNSIGNED,
+index(user),
+index(campaign_id),
+index(last_update_time)
+) ENGINE=MyISAM;
+
+CREATE TABLE vicidial_hci_agent_log (
+user VARCHAR(20),
+campaign_id VARCHAR(8),
+user_ip VARCHAR(45) default '',
+login_time DATETIME,
+last_call_time DATETIME,
+status VARCHAR(40),
+index(user),
+index(login_time)
+) ENGINE=MyISAM;
+
+CREATE TABLE vicidial_hci_reserve (
+user VARCHAR(20),
+lead_id INT(9) UNSIGNED,
+phone_number VARCHAR(18),
+reserve_date DATETIME,
+campaign_id VARCHAR(8),
+status VARCHAR(40),
+index(user),
+index(reserve_date),
+index(lead_id)
+) ENGINE=MyISAM;
+
+CREATE UNIQUE INDEX vhcir on vicidial_hci_reserve (lead_id,user,campaign_id);
+
+CREATE TABLE vicidial_hci_log (
+user VARCHAR(20),
+lead_id INT(9) UNSIGNED,
+phone_number VARCHAR(18),
+call_date DATETIME,
+campaign_id VARCHAR(8),
+status VARCHAR(40),
+user_ip VARCHAR(45) default '',
+index(user),
+index(call_date),
+index(lead_id)
+) ENGINE=MyISAM;
+
+CREATE TABLE vicidial_hci_log_archive LIKE vicidial_hci_log;
+CREATE UNIQUE INDEX vhlclu on vicidial_hci_log_archive (call_date,lead_id,user);
+
+CREATE TABLE hci_logs (
+date DATETIME,
+user VARCHAR(20) default '',
+lead_id INT(9) UNSIGNED NOT NULL,
+campaign_id VARCHAR(8),
+index(date)
+) ENGINE=MyISAM;
+
+UPDATE system_settings SET db_schema_version='1701',db_schema_update_date=NOW() where db_schema_version < 1701;
+
+ALTER TABLE vicidial_campaigns ADD daily_phone_number_call_limit TINYINT(3) UNSIGNED default '0';
+
+CREATE TABLE vicidial_phone_number_call_daily_counts (
+phone_number VARCHAR(18) NOT NULL,
+called_count TINYINT(3) UNSIGNED default '0',
+modify_date DATETIME,
+unique index vpncdc_phone_number (phone_number)
+) ENGINE=MyISAM;
+
+UPDATE system_settings SET db_schema_version='1702',db_schema_update_date=NOW() where db_schema_version < 1702;
+
+ALTER TABLE vicidial_agent_notifications MODIFY recipient_type ENUM('USER','USER_GROUP','CAMPAIGN','ALT_DISPLAY') DEFAULT NULL;
+
+CREATE TABLE vicidial_3way_press_multi (
+user VARCHAR(20) PRIMARY KEY,
+call_date DATETIME,
+phone_numbers VARCHAR(255) default '',
+phone_numbers_ct TINYINT(3) default '0',
+status VARCHAR(40) default '',
+index(call_date)
+) ENGINE=MyISAM;
+
+CREATE INDEX vdplpn on vicidial_3way_press_log (phone_number);
+
+UPDATE system_settings SET db_schema_version='1703',db_schema_update_date=NOW() where db_schema_version < 1703;
+
+ALTER TABLE vicidial_3way_press_live ADD call_channel VARCHAR(100) default '';
+
+ALTER TABLE vicidial_3way_press_log ADD call_channel VARCHAR(100) default '';
+ALTER TABLE vicidial_3way_press_log ADD call_transfer ENUM('N','Y') default 'N';
+
+ALTER TABLE vicidial_3way_press_log_archive ADD call_channel VARCHAR(100) default '';
+ALTER TABLE vicidial_3way_press_log_archive ADD call_transfer ENUM('N','Y') default 'N';
+
+UPDATE system_settings SET db_schema_version='1704',db_schema_update_date=NOW() where db_schema_version < 1704;
+
+ALTER TABLE vicidial_3way_press_live ADD agent_heartbeat DATETIME;
+
+UPDATE system_settings SET db_schema_version='1705',db_schema_update_date=NOW() where db_schema_version < 1705;
+
+ALTER TABLE vicidial_qc_agent_log ADD qc_log_id INT(10) UNSIGNED;
+
+UPDATE system_settings SET db_schema_version='1706',db_schema_update_date=NOW() where db_schema_version < 1706;
+
+ALTER TABLE vicidial_campaigns ADD state_descriptions VARCHAR(40) default '---DISABLED---';
+
+ALTER TABLE vicidial_inbound_groups ADD state_descriptions VARCHAR(40) default '---DISABLED---';
+
+UPDATE system_settings SET db_schema_version='1707',db_schema_update_date=NOW() where db_schema_version < 1707;
+
+ALTER TABLE vicidial_inbound_group_agents ADD daily_limit SMALLINT(5) default '-1';
+
+ALTER TABLE vicidial_live_inbound_agents ADD daily_limit SMALLINT(5) default '-1';
+
+CREATE TABLE server_live_stats (
+update_time DATETIME NOT NULL,
+server_ip VARCHAR(15) NOT NULL,
+server_name VARCHAR(100) NOT NULL,
+cpu_count SMALLINT(5) UNSIGNED default '0',
+loadavg_1 DECIMAL(8,2) default '0.00',
+loadavg_5 DECIMAL(8,2) default '0.00',
+loadavg_15 DECIMAL(8,2) default '0.00',
+freeram INT(9) default '0',
+usedram INT(9) default '0',
+processes SMALLINT(4) default '0',
+system_uptime VARCHAR(255) default '',
+cpu_user_percent DECIMAL(6,2) default '0.00',
+cpu_sys_percent DECIMAL(6,2) default '0.00',
+cpu_idle_percent DECIMAL(6,2) default '0.00',
+cpu_iowait_percent DECIMAL(6,2) default '0.00',
+cpu_vm_percent DECIMAL(6,2) default '0.00',
+disk_reads INT(9) UNSIGNED default '0',
+disk_writes INT(9) UNSIGNED default '0',
+asterisk_channels_total SMALLINT(4) UNSIGNED default '0',
+asterisk_agents_total SMALLINT(4) UNSIGNED default '0',
+mysql_uptime VARCHAR(20) default '0',
+mysql_queries_per_second INT(9) UNSIGNED default '0',
+mysql_connections MEDIUMINT(7) UNSIGNED default '0',
+unique index liveservers (server_ip)
+) ENGINE=MyISAM;
+
+CREATE TABLE server_live_drives (
+update_time DATETIME NOT NULL,
+server_ip VARCHAR(15) NOT NULL,
+drive_order TINYINT UNSIGNED default '0',
+drive_device VARCHAR(100) default '',
+read_sec DECIMAL(8,2) default '0.0',
+write_sec DECIMAL(8,2) default '0.0',
+kb_read_sec DECIMAL(12,2) default '0.0',
+kb_write_sec DECIMAL(12,2) default '0.0',
+util_pct DECIMAL(7,2) default '0.0',
+unique index livedrives (server_ip, drive_device)
+) ENGINE=MyISAM;
+
+CREATE TABLE server_live_partitions (
+update_time DATETIME NOT NULL,
+server_ip VARCHAR(15) NOT NULL,
+partition_order TINYINT UNSIGNED default '0',
+partition_path VARCHAR(100) default '',
+partition_filesystem VARCHAR(100) default '',
+use_pct TINYINT UNSIGNED default '0',
+mb_used BIGINT(14) default '0',
+mb_available BIGINT(14) default '0',
+unique index livepartitions (server_ip, partition_path)
+) ENGINE=MyISAM;
+
+UPDATE system_settings SET db_schema_version='1708',db_schema_update_date=NOW() where db_schema_version < 1708;
+
+ALTER TABLE vicidial_campaigns MODIFY hopper_hold_inserts ENUM('ENABLED','DISABLED','AUTONEXT') default 'DISABLED';
+
+UPDATE system_settings SET db_schema_version='1709',db_schema_update_date=NOW() where db_schema_version < 1709;
+
+ALTER TABLE vicidial_call_time_holidays ADD holiday_method VARCHAR(40) default 'REPLACE';
+
+UPDATE system_settings SET db_schema_version='1710',db_schema_update_date=NOW() where db_schema_version < 1710;
+
+CREATE TABLE inbound_disabled_entries (
+interval_id INT(10) UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+start_datetime DATETIME,
+end_datetime datetime,
+location VARCHAR(50),
+message VARCHAR(100),
+message_type ENUM('MEETING','CLOSED','WEATHER','CUSTOM'),
+status ENUM('ACTIVE','LIVE','COMPLETED','CANCELLED') DEFAULT 'ACTIVE',
+user VARCHAR(20),
+modify_date TIMESTAMP NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+modified_by VARCHAR(20),
+holiday_id VARCHAR(30),
+KEY inbound_disabled_entries_key (start_datetime,end_datetime,location)
+) ENGINE=MyISAM;
+
+CREATE TABLE vicidial_pending_ar (
+ar_id INT(10) UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+report_id VARCHAR(30) default '',
+start_datetime DATETIME,
+php_script VARCHAR(50) default '',
+user VARCHAR(20),
+status ENUM('TRIGGERED','AUTHORIZED','COMPLETED','ERROR') DEFAULT 'TRIGGERED',
+notes TEXT,
+KEY pending_ar_key (user,start_datetime)
+) ENGINE=MyISAM;
+
+UPDATE system_settings SET db_schema_version='1711',db_schema_update_date=NOW() where db_schema_version < 1711;
+
+ALTER TABLE vicidial_campaigns ADD script_tab_height SMALLINT(5) default '0';
+
+UPDATE system_settings SET db_schema_version='1712',db_schema_update_date=NOW() where db_schema_version < 1712;
+
+CREATE TABLE vicidial_timeoff_log (
+vtl_id INT(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+user VARCHAR(20) DEFAULT NULL,
+full_name VARCHAR(100) DEFAULT NULL,
+timeoff_month CHAR(7) DEFAULT NULL,
+timeoff_type VARCHAR(10) DEFAULT NULL,
+hours DECIMAL(5,2) unsigned DEFAULT NULL,
+entry_date DATETIME DEFAULT NULL,
+modify_date TIMESTAMP NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+entered_by VARCHAR(20) DEFAULT NULL,
+last_modified_by VARCHAR(20) DEFAULT NULL,
+PRIMARY KEY (vtl_id),
+UNIQUE KEY vicidial_timeoff_log_agent_month_key (user,timeoff_month,timeoff_type)
+);
+
+INSERT INTO vicidial_settings_containers(container_id,container_notes,container_type,user_group,container_entry) VALUES ('VICIDIAL_TIMEOFF_SETTINGS','Settings for time-off admin utility','OTHER','---ALL---','; Comma-delimited time-off codes - MANDATORY, must have at least one defined. \r\n; Default is \'VAC\' for vacation\r\ntimeoff_types => VAC\r\n\r\n; optional, if set to \'1\' will show all viewable agents, even ones with no \r\n; time off for month.  Default is 0\r\ndisplay_all_agents => 0\r\n\r\n; optional, used to filter users displayed, in addition to user_group \r\n; permissions\r\nuser_filter_SQL =>  \r\n\r\n; optional, uses columns from vicidial_users table.   Defaults to \r\n; full_name asc, user asc if commented out or non-existent\r\n; sort_SQL => full_name asc, user asc\r\n\r\n; include custom coding for misc download coding where \"custom_download\" \r\n; marked in agent_timeoff_script.php - DO NOT USE WITHOUT CODING KNOWLEDGE\r\n; set to \'1\' to activate\r\ncustom_download => 0');
+
+UPDATE system_settings SET db_schema_version='1713',db_schema_update_date=NOW() where db_schema_version < 1713;
+
+ALTER TABLE vicidial_campaigns ADD call_log_days SMALLINT(5) default '0';
+
+UPDATE system_settings SET db_schema_version='1714',db_schema_update_date=NOW() where db_schema_version < 1714;
+
+ALTER TABLE vicidial_campaigns ADD leave_3way_stop_recording ENUM('DISABLED','ALL_CALLS') default 'DISABLED';
+
+UPDATE system_settings SET db_schema_version='1715',db_schema_update_date=NOW() where db_schema_version < 1715;
+
+ALTER TABLE system_settings ADD coldstorage_server_ip VARCHAR(50) default '';
+ALTER TABLE system_settings ADD coldstorage_dbname VARCHAR(50) default '';
+ALTER TABLE system_settings ADD coldstorage_login VARCHAR(50) default '';
+ALTER TABLE system_settings ADD coldstorage_pass VARCHAR(50) default '';
+ALTER TABLE system_settings ADD coldstorage_port VARCHAR(10) default '';
+
+UPDATE system_settings SET db_schema_version='1716',db_schema_update_date=NOW() where db_schema_version < 1716;
+
+INSERT INTO vicidial_state_call_times SET state_call_time_id='florida',state_call_time_state='FL',state_call_time_name='Florida 8am 8pm',sct_default_start='800',sct_default_stop='2000';
+INSERT INTO vicidial_state_call_times SET state_call_time_id='maine',state_call_time_state='ME',state_call_time_name='Maine 9am-5pm',sct_default_start='900',sct_default_stop='1700';
+INSERT INTO vicidial_state_call_times SET state_call_time_id='maryland',state_call_time_state='MD',state_call_time_name='Maryland 8am 8pm',sct_default_start='800',sct_default_stop='2000';
+INSERT INTO vicidial_state_call_times SET state_call_time_id='oklahoma',state_call_time_state='OK',state_call_time_name='Oklahoma 8am 8pm',sct_default_start='800',sct_default_stop='2000';
+INSERT INTO vicidial_state_call_times SET state_call_time_id='washington',state_call_time_state='WA',state_call_time_name='Washington 8am-8pm',sct_default_start='800',sct_default_stop='2000';
+
+UPDATE system_settings SET db_schema_version='1717',db_schema_update_date=NOW() where db_schema_version < 1717;
+
+ALTER TABLE vicidial_campaigns ADD manual_minimum_ring_seconds SMALLINT(5) default '0';
+ALTER TABLE vicidial_campaigns ADD manual_minimum_attempt_seconds SMALLINT(5) default '0';
+ALTER TABLE vicidial_campaigns ADD manual_minimum_answer_seconds SMALLINT(5) default '0';
+
+UPDATE system_settings SET db_schema_version='1718',db_schema_update_date=NOW() where db_schema_version < 1718;
+
+ALTER TABLE system_settings ADD stereo_recording ENUM('0','1','2','3','4','5','6') default '0';
+
+ALTER TABLE vicidial_campaigns ADD stereo_recording ENUM('DISABLED','CUSTOMER','CUSTOMER_MUTE') default 'DISABLED';
+ALTER TABLE vicidial_campaigns ADD khomp_settings_container VARCHAR(40) DEFAULT 'KHOMPSETTINGS';
+
+ALTER TABLE vicidial_inbound_groups ADD stereo_recording ENUM('DISABLED','CUSTOMER','CUSTOMER_MUTE') default 'DISABLED';
+
+ALTER TABLE vicidial_manager MODIFY cmd_line_i VARCHAR(50);
+ALTER TABLE vicidial_manager MODIFY cmd_line_j VARCHAR(50);
+ALTER TABLE vicidial_manager MODIFY cmd_line_d VARCHAR(200);
+
+CREATE TABLE recording_log_stereo (
+recording_id INT(10) UNSIGNED PRIMARY KEY NOT NULL,
+server_ip VARCHAR(15),
+start_time DATETIME,
+end_time DATETIME,
+length_in_sec MEDIUMINT(8) UNSIGNED,
+filename VARCHAR(100),
+lead_id INT(9) UNSIGNED,
+options VARCHAR(100),
+processing_log TEXT,
+index(filename),
+index(lead_id),
+index(start_time)
+) ENGINE=MyISAM;
+
+UPDATE system_settings SET db_schema_version='1719',db_schema_update_date=NOW() where db_schema_version < 1719;
+
+ALTER TABLE vicidial_khomp_log ADD khomp_settings_container VARCHAR(40); 
+
+UPDATE system_settings SET db_schema_version='1720',db_schema_update_date=NOW() where db_schema_version < 1720;
+
+CREATE TABLE clr_log (
+clr_id INT(10) UNSIGNED PRIMARY KEY AUTO_INCREMENT NOT NULL,
+start_time DATETIME,
+begin_range DATETIME,
+range_minutes SMALLINT(5) UNSIGNED default '0',
+phase VARCHAR(40) default '',
+records_ct MEDIUMINT(7) UNSIGNED default '0',
+length_in_sec MEDIUMINT(8) UNSIGNED default '0',
+options VARCHAR(100) default '',
+server_ip VARCHAR(15) default '',
+processing_log TEXT,
+index(start_time)
+) ENGINE=MyISAM;
+
+ALTER TABLE vicidial_inbound_dids ADD modify_stamp TIMESTAMP;
+ALTER TABLE vicidial_inbound_groups ADD modify_stamp TIMESTAMP;
+ALTER TABLE vicidial_users ADD modify_stamp TIMESTAMP;
+ALTER TABLE vicidial_user_groups ADD modify_stamp TIMESTAMP;
+ALTER TABLE vicidial_lead_filters ADD modify_stamp TIMESTAMP;
+ALTER TABLE vicidial_scripts ADD modify_stamp TIMESTAMP;
+ALTER TABLE vicidial_call_times ADD modify_stamp TIMESTAMP;
+ALTER TABLE vicidial_state_call_times ADD modify_stamp TIMESTAMP;
+ALTER TABLE vicidial_shifts ADD modify_stamp TIMESTAMP;
+ALTER TABLE vicidial_statuses ADD modify_stamp TIMESTAMP;
+ALTER TABLE vicidial_status_groups ADD modify_stamp TIMESTAMP;
+ALTER TABLE vicidial_cid_groups ADD modify_stamp TIMESTAMP;
+ALTER TABLE vicidial_settings_containers ADD modify_stamp TIMESTAMP;
+ALTER TABLE vicidial_url_multi ADD modify_stamp TIMESTAMP;
+
+UPDATE system_settings SET db_schema_version='1721',db_schema_update_date=NOW() where db_schema_version < 1721;
+
+ALTER TABLE vicidial_inbound_dids MODIFY filter_phone_group_id TEXT;
+ALTER TABLE vicidial_inbound_dids MODIFY pre_filter_phone_group_id TEXT;
+
+UPDATE system_settings SET db_schema_version='1722',db_schema_update_date=NOW() where db_schema_version < 1722;

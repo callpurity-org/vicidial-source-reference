@@ -1,6 +1,8 @@
 <?php
 # customer_chat_functions.php
 #
+# Copyright (C) 2024  Joe Johnson, Matt Florell <vicidial@gmail.com>    LICENSE: AGPLv2
+#
 # CHANGES
 # 151212-0828 - First Build for customer chat
 # 151213-1106 - Added variable filtering
@@ -13,6 +15,8 @@
 # 160725-1711 - Fixed nested iframe issue
 # 160805-2315 - Added coding to show logos in customer display
 # 161026-2230 - Added translation QXZ to untranslated text
+# 220220-1940 - Added allow_web_debug system setting
+# 240801-1130 - Code updates for PHP8 compatibility
 #
 
 require("dbconnect_mysqli.php");
@@ -51,28 +55,24 @@ if (isset($_GET["available_agents"]))				{$available_agents=$_GET["available_age
 if (isset($_GET["show_email"]))						{$show_email=$_GET["show_email"];}
 	elseif (isset($_POST["show_email"]))			{$show_email=$_POST["show_email"];}
 
-$chat_member_name = preg_replace('/[^- \.\,\_0-9a-zA-Z]/',"",$chat_member_name);
+if(isset($chat_member_name)) {$chat_member_name = preg_replace('/[^- \.\,\_0-9a-zA-Z]/',"",$chat_member_name);}
 if (!$user) {echo "No user, no using."; exit;}
 
-$lead_id = preg_replace("/[^0-9]/","",$lead_id);
-$chat_id = preg_replace('/[^- \_\.0-9a-zA-Z]/','',$chat_id);
-$chat_level = preg_replace('/[^- \_\.0-9a-zA-Z]/','',$chat_level);
-$group_id = preg_replace('/[^- \_0-9a-zA-Z]/','',$group_id);
-$language = preg_replace('/[^-\_0-9a-zA-Z]/','',$language);
-$chat_member_name = preg_replace("/\'|\"|\\\\|;/","",$chat_member_name);
-$available_agents = preg_replace('/[^-\_0-9a-zA-Z]/','',$available_agents);
-$show_email = preg_replace('/[^-\_0-9a-zA-Z]/','',$show_email);
-$chat_message = preg_replace('/\|/', '&#124;', $chat_message);
-
-if ($non_latin < 1)
-	{
-	$user = preg_replace('/[^- \'\+\_\.0-9a-zA-Z]/','',$user);
-	$phone_number = preg_replace("/[^0-9]/","",$phone_number);
-	}
-else
-	{
-	$user = preg_replace("/\'|\"|\\\\|;/","",$user);
-	}
+if(isset($DB)) {$DB = preg_replace("/[^0-9a-zA-Z]/","",$DB);}
+if(isset($lead_id)) {$lead_id = preg_replace("/[^0-9]/","",$lead_id);}
+if(isset($chat_id)) {$chat_id = preg_replace('/[^- \_\.0-9a-zA-Z]/','',$chat_id);}
+if(isset($chat_level)) {$chat_level = preg_replace('/[^- \_\.0-9a-zA-Z]/','',$chat_level);}
+if(isset($group_id)) {$group_id = preg_replace('/[^- \_0-9a-zA-Z]/','',$group_id);}
+if(isset($language)) {$language = preg_replace('/[^-\_0-9a-zA-Z]/','',$language);}
+if(isset($user)) {$user = preg_replace("/\'|\"|\\\\|;/","",$user);}
+if(isset($chat_member_name)) {$chat_member_name = preg_replace("/\'|\"|\\\\|;/","",$chat_member_name);}
+if(isset($available_agents)) {$available_agents = preg_replace('/[^-\_0-9a-zA-Z]/','',$available_agents);}
+if(isset($show_email)) {$show_email = preg_replace('/[^-\_0-9a-zA-Z]/','',$show_email);}
+if(isset($chat_message)) {$chat_message = preg_replace('/\|/', '&#124;', $chat_message);}
+if(isset($action)) {$action = preg_replace('/[^-\_0-9a-zA-Z]/','',$action);}
+if(isset($user_level)) {$user_level = preg_replace('/[^-\_0-9a-zA-Z]/','',$user_level);}
+if(isset($keepalive)) {$keepalive = preg_replace('/[^-\_0-9a-zA-Z]/','',$keepalive);}
+if(isset($current_message_count)) {$current_message_count = preg_replace('/[^-\_0-9a-zA-Z]/','',$current_message_count);}
 
 $use_agent_colors=1;
 if (file_exists('options.php'))
@@ -82,7 +82,7 @@ if (file_exists('options.php'))
 #############################################
 ##### START SYSTEM_SETTINGS LOOKUP #####
 $VUselected_language='';
-$stmt = "SELECT use_non_latin,enable_languages,language_method,default_language,chat_url,allow_chats FROM system_settings;";
+$stmt = "SELECT use_non_latin,enable_languages,language_method,default_language,chat_url,allow_chats,allow_web_debug FROM system_settings;";
 $rslt=mysql_to_mysqli($stmt, $link);
         if ($mel > 0) {mysql_error_logging($NOW_TIME,$link,$mel,$stmt,'00XXX',$user,$server_ip,$session_name,$one_mysql_log);}
 if ($DB) {echo "$stmt\n";}
@@ -96,10 +96,22 @@ if ($qm_conf_ct > 0)
 	$SSdefault_language =	$row[3];
 	$chat_url =				$row[4];
 	$SSallow_chats =		$row[5];
+	$SSallow_web_debug =	$row[6];
 	}
 $VUselected_language = $SSdefault_language;
+if ($SSallow_web_debug < 1) {$DB=0;}
 ##### END SETTINGS LOOKUP #####
 ###########################################
+
+if ($non_latin < 1)
+	{
+	$user = preg_replace('/[^- \+\_\.0-9a-zA-Z]/','',$user);
+	}
+else
+	{
+	$user = preg_replace("/\'|\"|\\\\|;/","",$user);
+	}
+
 
 if (strlen($language) > 1)
 	{

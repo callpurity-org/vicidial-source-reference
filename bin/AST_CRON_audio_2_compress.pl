@@ -28,7 +28,7 @@
 #
 # This program assumes that recordings are saved by Asterisk as .wav
 # 
-# Copyright (C) 2017  Matt Florell <vicidial@gmail.com>    LICENSE: AGPLv2
+# Copyright (C) 2024  Matt Florell <vicidial@gmail.com>    LICENSE: AGPLv2
 #
 # 
 # 80302-1958 - First Build
@@ -38,10 +38,13 @@
 # 110524-1059 - Added run-check concurrency check option
 # 160523-0652 - Added --HTTPS option to use https instead of http in local location
 # 170212-0732 - Added --file-sorting option to put files into dated directories (THIS WILL NOT ALLOW FTP ARCHIVING)
+# 230201-0007 - Allowed for handling of stereo gateway recordings
+# 240213-1146 - Added --GATEWAY option
 #
 
 $GSM=0;   $MP3=0;   $OGG=0;   $GSW=0;
 $HTTPS=0;
+$GATEWAY=0;
 $maxfiles = 100000;
 $location='';
 
@@ -67,6 +70,7 @@ if (length($ARGV[0])>1)
 		print "  [--OGG] = compress into OGG Vorbis codec\n";
 		print "  [--GSW] = compress into GSM codec with RIFF headers and .wav extension\n";
 		print "  [--HTTPS] = use https instead of http in local location\n";
+		print "  [--GATEWAY] = use gateway recording server settings\n";
 		print "  [--run-check] = concurrency check, die if another instance is running\n";
 		print "  [--max-files=x] = maximum number of files to process, default is 100000\n";
 		print "  [--file-sorting] = sort files into subfolders in YYYY-MM-DD format (THIS WILL NOT ALLOW FTP ARCHIVING)\n";
@@ -110,6 +114,11 @@ if (length($ARGV[0])>1)
 			{
 			$HTTPS=1;
 			if ($DB) {print "HTTPS location option enabled\n";}
+			}
+		if ($args =~ /--GATEWAY/i)
+			{
+			$GATEWAY=1;
+			if ($DB) {print "GATEWAY settings option enabled\n";}
 			}
 		if ($args =~ /--GSM/i)
 			{
@@ -303,6 +312,7 @@ foreach(@FILES)
 			$ALLfile = $FILES[$i];
 			$SQLFILE = $FILES[$i];
 			$SQLFILE =~ s/-all\.wav|-all\.gsm//gi;
+			$SQLFILE =~ s/\.wav|\.gsm//gi;
 
 			$stmtA = "select recording_id, LEFT(start_time,10) AS file_date from recording_log where filename='$SQLFILE' order by recording_id desc LIMIT 1;";
 			if($DBX){print STDERR "\n|$stmtA|\n";}
@@ -339,6 +349,7 @@ foreach(@FILES)
 				{
 				$GSMfile = $FILES[$i];
 				$GSMfile =~ s/-all\.wav/-all.gsm/gi;
+				$GSMfile =~ s/\.wav/.gsm/gi;
 
 				if ($DB) {print "|$recording_id|$ALLfile|$dir2/$location$GSMfile|     |$SQLfile|\n";}
 
@@ -353,6 +364,7 @@ foreach(@FILES)
 				{
 				$OGGfile = $FILES[$i];
 				$OGGfile =~ s/-all\.wav/-all.ogg/gi;
+				$OGGfile =~ s/\.wav|\.gsm/.ogg/gi;
 
 				if ($DB) {print "|$recording_id|$ALLfile|$dir2/$location$OGGfile|     |$SQLfile|\n";}
 
@@ -367,10 +379,18 @@ foreach(@FILES)
 				{
 				$MP3file = $FILES[$i];
 				$MP3file =~ s/-all\.wav/-all.mp3/gi;
+				$MP3file =~ s/\.wav|\.gsm/.mp3/gi;
 
 				if ($DB) {print "|$recording_id|$ALLfile|$dir2/$location$MP3file|     |$SQLfile|\n";}
 
-				`$lamebin -b 16 -m m --silent "$dir2/$ALLfile" "$dir2/$location$MP3file"`;
+				if ($GATEWAY > 0) 
+					{
+					`$lamebin -b 16 -m s --silent "$dir2/$ALLfile" "$dir2/$location$MP3file"`;
+					}
+				else
+					{
+					`$lamebin -b 16 -m m --silent "$dir2/$ALLfile" "$dir2/$location$MP3file"`;
+					}
 
 				$stmtA = "UPDATE recording_log set location='$HTTP://$server_ip/RECORDINGS/$location$MP3file' where recording_id='$recording_id';";
 					if($DBX){print STDERR "\n|$stmtA|\n";}

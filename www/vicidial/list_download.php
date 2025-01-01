@@ -4,7 +4,7 @@
 # downloads the entire contents of a vicidial list ID to a flat text file
 # that is tab delimited
 #
-# Copyright (C) 2020  Matt Florell <vicidial@gmail.com>    LICENSE: AGPLv2
+# Copyright (C) 2022  Matt Florell <vicidial@gmail.com>    LICENSE: AGPLv2
 #
 # CHANGES
 #
@@ -37,6 +37,8 @@
 # 180330-1414 - Added option for downloading of CID Groups
 # 190926-1015 - Fix for PHP7
 # 201208-1630 - Fix for custom fields issue when downloading list with no custom fields itself
+# 210308-0939 - Fix for ALL_DNC_CAMPAIGNS dnc download
+# 220224-1041 - Added allow_web_debug system setting
 #
 
 $startMS = microtime();
@@ -47,6 +49,7 @@ require("functions.php");
 $PHP_AUTH_USER=$_SERVER['PHP_AUTH_USER'];
 $PHP_AUTH_PW=$_SERVER['PHP_AUTH_PW'];
 $PHP_SELF=$_SERVER['PHP_SELF'];
+$PHP_SELF = preg_replace('/\.php.*/i','.php',$PHP_SELF);
 if (isset($_GET["list_id"]))				{$list_id=$_GET["list_id"];}
 	elseif (isset($_POST["list_id"]))		{$list_id=$_POST["list_id"];}
 if (isset($_GET["DB"]))						{$DB=$_GET["DB"];}
@@ -62,15 +65,16 @@ if (isset($_GET["download_type"]))			{$download_type=$_GET["download_type"];}
 
 if (strlen($shift)<2) {$shift='ALL';}
 if ($group_id=='SYSTEM_INTERNAL') {$download_type='systemdnc';}
+$DB=preg_replace("/[^0-9a-zA-Z]/","",$DB);
 
 $report_name = 'Download List';
 $db_source = 'M';
 
 #############################################
 ##### START SYSTEM_SETTINGS LOOKUP #####
-$stmt = "SELECT use_non_latin,outbound_autodial_active,slave_db_server,reports_use_slave_db,custom_fields_enabled,enable_languages,language_method,active_modules FROM system_settings;";
+$stmt = "SELECT use_non_latin,outbound_autodial_active,slave_db_server,reports_use_slave_db,custom_fields_enabled,enable_languages,language_method,active_modules,allow_web_debug FROM system_settings;";
 $rslt=mysql_to_mysqli($stmt, $link);
-if ($DB) {echo "$stmt\n";}
+#if ($DB) {echo "$stmt\n";}
 $qm_conf_ct = mysqli_num_rows($rslt);
 if ($qm_conf_ct > 0)
 	{
@@ -83,9 +87,17 @@ if ($qm_conf_ct > 0)
 	$SSenable_languages =			$row[5];
 	$SSlanguage_method =			$row[6];
 	$active_modules =				$row[7];
+	$SSallow_web_debug =			$row[8];
 	}
+if ($SSallow_web_debug < 1) {$DB=0;}
 ##### END SETTINGS LOOKUP #####
 ###########################################
+
+$list_id = preg_replace('/[^-_0-9a-zA-Z]/','',$list_id);
+$group_id = preg_replace('/[^-_0-9a-zA-Z]/','',$group_id);
+$download_type = preg_replace('/[^-_0-9a-zA-Z]/','',$download_type);
+$submit = preg_replace('/[^-_0-9a-zA-Z]/','',$submit);
+$SUBMIT = preg_replace('/[^-_0-9a-zA-Z]/','',$SUBMIT);
 
 if ($non_latin < 1)
 	{
@@ -94,12 +106,9 @@ if ($non_latin < 1)
 	}
 else
 	{
-	$PHP_AUTH_PW = preg_replace("/'|\"|\\\\|;/","",$PHP_AUTH_PW);
-	$PHP_AUTH_USER = preg_replace("/'|\"|\\\\|;/","",$PHP_AUTH_USER);
+	$PHP_AUTH_USER = preg_replace('/[^-_0-9\p{L}]/u', '', $PHP_AUTH_USER);
+	$PHP_AUTH_PW = preg_replace('/[^-_0-9\p{L}]/u', '', $PHP_AUTH_PW);
 	}
-$list_id = preg_replace('/[^-_0-9a-zA-Z]/','',$list_id);
-$group_id = preg_replace('/[^-_0-9a-zA-Z]/','',$group_id);
-$download_type = preg_replace('/[^-_0-9a-zA-Z]/','',$download_type);
 
 $stmt="SELECT selected_language from vicidial_users where user='$PHP_AUTH_USER';";
 if ($DB) {echo "|$stmt|\n";}
@@ -113,8 +122,16 @@ if ($sl_ct > 0)
 
 $auth=0;
 $auth_message = user_authorization($PHP_AUTH_USER,$PHP_AUTH_PW,'',1,0);
-if ($auth_message == 'GOOD')
-	{$auth=1;}
+if ( ($auth_message == 'GOOD') or ($auth_message == '2FA') )
+	{
+	$auth=1;
+	if ($auth_message == '2FA')
+		{
+		header ("Content-type: text/html; charset=utf-8");
+		echo _QXZ("Your session is expired").". <a href=\"admin.php\">"._QXZ("Click here to log in")."</a>.\n";
+		exit;
+		}
+	}
 
 if ($auth < 1)
 	{
@@ -282,10 +299,34 @@ elseif ($download_type == 'dnc')
 	{
 	##### Campaign DNC list validation #####
 	$event_code_type='CAMPAIGN DNC';
-	$stmt="select count(*) from vicidial_campaigns where campaign_id='$group_id' $LOGallowed_campaignsSQL;";
+	$camp_typeSQL = "campaign_id='$group_id'";
+
+	if (preg_match('/ALL_CAMPAIGNS/',$group_id)) {$camp_typeSQL = "active IN('Y','N')";}
+	if (preg_match('/ALL_DNC_CAMPAIGNS/',$group_id)) {$camp_typeSQL = "use_campaign_dnc IN('Y','AREACODE')";}
+	if (preg_match('/ALL_ACTIVE_CAMPAIGNS/',$group_id)) {$camp_typeSQL = "active='Y'";}
+	if (preg_match('/ALL_ACTIVE_DNC_CAMPAIGNS/',$group_id)) {$camp_typeSQL = "active='Y' and use_campaign_dnc IN('Y','AREACODE')";}
+
+	if (preg_match('/ALL_CAMPAIGNS|ALL_DNC_CAMPAIGNS|ALL_ACTIVE_CAMPAIGNS|ALL_ACTIVE_DNC_CAMPAIGNS/',$group_id)) 
+		{
+		$stmt = "SELECT campaign_id FROM vicidial_campaigns where $camp_typeSQL order by campaign_id;";
+		$rslt=mysql_to_mysqli($stmt, $link);
+		$camp_ct = mysqli_num_rows($rslt);
+		if ($DB) {echo "$camp_ct|$stmt\n";}
+		$cdnc=0;   $camp_list='';
+		while ($camp_ct > $cdnc)
+			{
+			$row=mysqli_fetch_row($rslt);
+			if ($cdnc > 0) {$camp_list.= ",";}
+			$camp_list.= "'$row[0]'";
+			$cdnc++;
+			}
+		if ($cdnc > 0) {$camp_typeSQL = "campaign_id IN($camp_list)";}
+		}
+
+	$stmt="select count(*) from vicidial_campaigns where $camp_typeSQL $LOGallowed_campaignsSQL;";
 	$rslt=mysql_to_mysqli($stmt, $link);
-	if ($DB) {echo "$stmt\n";}
 	$count_to_print = mysqli_num_rows($rslt);
+	if ($DB) {echo "$count_to_print|$stmt\n";}
 	if ($count_to_print > 0)
 		{
 		$row=mysqli_fetch_row($rslt);
@@ -299,7 +340,7 @@ elseif ($download_type == 'dnc')
 		exit;
 		}
 
-	$stmt="select count(*) from vicidial_campaign_dnc where campaign_id='$group_id';";
+	$stmt="select count(*) from vicidial_campaign_dnc where $camp_typeSQL;";
 	$rslt=mysql_to_mysqli($stmt, $link);
 	if ($DB) {echo "$stmt\n";}
 	$count_to_print = mysqli_num_rows($rslt);
@@ -459,7 +500,7 @@ elseif ($download_type == 'dnc')
 	$TXTfilename = "DNC_$group_id$US$FILE_TIME.txt";
 	$header_row = "phone_number";
 	$header_columns='';
-	$stmt="select phone_number from vicidial_campaign_dnc where campaign_id='$group_id';";
+	$stmt="select phone_number from vicidial_campaign_dnc where $camp_typeSQL;";
 	}
 elseif ($download_type == 'fpgn')
 	{

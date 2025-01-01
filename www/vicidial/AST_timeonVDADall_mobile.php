@@ -1,7 +1,7 @@
 <?php 
 # AST_timeonVDADall_mobile.php
 # 
-# Copyright (C) 2020  Matt Florell <vicidial@gmail.com>    LICENSE: AGPLv2
+# Copyright (C) 2024  Matt Florell <vicidial@gmail.com>    LICENSE: AGPLv2
 #
 # live real-time stats for the VICIDIAL Auto-Dialer all servers
 #
@@ -9,10 +9,12 @@
 # 
 # CHANGELOG:
 # 200318-1124 - First build, based upon AST_timeonVDADall.php
+# 220221-1536 - Added allow_web_debug system setting
+# 240801-1137 - Code updates for PHP8 compatibility
 #
 
-$version = '2.14-1';
-$build = '200318-1124';
+$version = '2.14-3';
+$build = '240801-1137';
 
 header ("Content-type: text/html; charset=utf-8");
 
@@ -22,6 +24,7 @@ require("functions.php");
 $PHP_AUTH_USER=$_SERVER['PHP_AUTH_USER'];
 $PHP_AUTH_PW=$_SERVER['PHP_AUTH_PW'];
 $PHP_SELF=$_SERVER['PHP_SELF'];
+$PHP_SELF = preg_replace('/\.php.*/i','.php',$PHP_SELF);
 if (isset($_GET["server_ip"]))			{$server_ip=$_GET["server_ip"];}
 	elseif (isset($_POST["server_ip"]))	{$server_ip=$_POST["server_ip"];}
 if (isset($_GET["RR"]))					{$RR=$_GET["RR"];}
@@ -94,20 +97,21 @@ if (isset($_GET["droppedOFtotal"]))				{$droppedOFtotal=$_GET["droppedOFtotal"];
 	elseif (isset($_POST["droppedOFtotal"]))	{$droppedOFtotal=$_POST["droppedOFtotal"];}
 if (isset($_GET["report_display_type"]))			{$report_display_type=$_GET["report_display_type"];}
 	elseif (isset($_POST["report_display_type"]))	{$report_display_type=$_POST["report_display_type"];}
-if (isset($_GET["RTdisplay_type"]))			{$RTdisplay_type=$_GET["RTdisplay_type"];}
+if (isset($_GET["RTdisplay_type"]))				{$RTdisplay_type=$_GET["RTdisplay_type"];}
 	elseif (isset($_POST["RTdisplay_type"]))	{$RTdisplay_type=$_POST["RTdisplay_type"];}
 if (isset($_GET["mobile_device"]))				{$mobile_device=$_GET["mobile_device"];}
-	elseif (isset($_POST["mobile_device"]))	{$mobile_device=$_POST["mobile_device"];}
+	elseif (isset($_POST["mobile_device"]))		{$mobile_device=$_POST["mobile_device"];}
 
+$DB=preg_replace("/[^0-9a-zA-Z]/","",$DB);
 
 $report_name = 'Real-Time Main Report';
 $db_source = 'M';
 
 #############################################
 ##### START SYSTEM_SETTINGS LOOKUP #####
-$stmt = "SELECT use_non_latin,outbound_autodial_active,slave_db_server,reports_use_slave_db,enable_languages,language_method,agent_whisper_enabled,allow_chats,cache_carrier_stats_realtime,report_default_format,ofcom_uk_drop_calc,enable_pause_code_limits FROM system_settings;";
+$stmt = "SELECT use_non_latin,outbound_autodial_active,slave_db_server,reports_use_slave_db,enable_languages,language_method,agent_whisper_enabled,allow_chats,cache_carrier_stats_realtime,report_default_format,ofcom_uk_drop_calc,enable_pause_code_limits,allow_web_debug FROM system_settings;";
 $rslt=mysql_to_mysqli($stmt, $link);
-if ($DB) {echo "$stmt\n";}
+#if ($DB) {echo "$stmt\n";}
 $qm_conf_ct = mysqli_num_rows($rslt);
 if ($qm_conf_ct > 0)
 	{
@@ -124,10 +128,12 @@ if ($qm_conf_ct > 0)
 	$SSreport_default_format =		$row[9];
 	$SSofcom_uk_drop_calc =			$row[10];
 	$SSenable_pause_code_limits =	$row[11];
+	$SSallow_web_debug =			$row[12];
 	}
+if (strlen($report_display_type)<2) {$report_display_type = $SSreport_default_format;}
+if ($SSallow_web_debug < 1) {$DB=0;}
 ##### END SETTINGS LOOKUP #####
 ###########################################
-if (strlen($report_display_type)<2) {$report_display_type = $SSreport_default_format;}
 
 if ( (strlen($slave_db_server)>5) and (preg_match("/$report_name/",$reports_use_slave_db)) )
 	{
@@ -149,9 +155,9 @@ if (file_exists('options.php'))
 if (!isset($DB))			{$DB=0;}
 if (!isset($RR))			{$RR=40;}
 if (!isset($group))			{$group='ALL-ACTIVE';}
-if (!isset($groups))		{$groups=array();}
-if (!isset($user_group_filter))		{$user_group_filter=array();}
-if (!isset($ingroup_filter))		{$ingroup_filter=array();}
+if (!is_array($groups))		{$groups=array();}
+if (!is_array($user_group_filter))		{$user_group_filter=array();}
+if (!is_array($ingroup_filter))		{$ingroup_filter=array();}
 if (!isset($usergroup))		{$usergroup='';}
 if (!isset($UGdisplay))		{$UGdisplay=0;}	# 0=no, 1=yes
 if (!isset($UidORname))		{$UidORname=1;}	# 0=id, 1=name
@@ -245,9 +251,54 @@ if ($non_latin < 1)
 	}
 else
 	{
-	$PHP_AUTH_PW = preg_replace("/'|\"|\\\\|;/","",$PHP_AUTH_PW);
-	$PHP_AUTH_USER = preg_replace("/'|\"|\\\\|;/","",$PHP_AUTH_USER);
+	$PHP_AUTH_USER = preg_replace('/[^-_0-9\p{L}]/u', '', $PHP_AUTH_USER);
+	$PHP_AUTH_PW = preg_replace('/[^-_0-9\p{L}]/u', '', $PHP_AUTH_PW);
 	}
+$RR = preg_replace('/[^0-9]/', '', $RR);
+$inbound = preg_replace('/[^-_0-9a-zA-Z]/', '', $inbound);
+$group = preg_replace('/[^-_0-9a-zA-Z]/', '', $group);
+$groups[0] = preg_replace('/[^-_0-9a-zA-Z]/', '', $groups[0]);
+$usergroup = preg_replace('/[^-_0-9a-zA-Z]/', '', $usergroup);
+$DB = preg_replace('/[^0-9]/', '', $DB);
+$adastats = preg_replace('/[^-_0-9a-zA-Z]/', '', $adastats);
+$SIPmonitorLINK = preg_replace('/[^-_0-9a-zA-Z]/', '', $SIPmonitorLINK);
+$IAXmonitorLINK = preg_replace('/[^-_0-9a-zA-Z]/', '', $IAXmonitorLINK);
+$UGdisplay = preg_replace('/[^-_0-9a-zA-Z]/', '', $UGdisplay);
+$UidORname = preg_replace('/[^-_0-9a-zA-Z]/', '', $UidORname);
+$orderby = preg_replace('/[^-_0-9a-zA-Z]/', '', $orderby);
+$SERVdisplay = preg_replace('/[^-_0-9a-zA-Z]/', '', $SERVdisplay);
+$CALLSdisplay = preg_replace('/[^-_0-9a-zA-Z]/', '', $CALLSdisplay);
+$PHONEdisplay = preg_replace('/[^-_0-9a-zA-Z]/', '', $PHONEdisplay);
+$CUSTPHONEdisplay = preg_replace('/[^-_0-9a-zA-Z]/', '', $CUSTPHONEdisplay);
+$CUSTINFOdisplay = preg_replace('/[^-_0-9a-zA-Z]/', '', $CUSTINFOdisplay);
+if ($CUSTINFOdisplay==1)	{$CUSTPHONEdisplay=0;}	# only one of these should be on at one time
+if ($CUSTPHONEdisplay==1)	{$CUSTINFOdisplay=0;}	# only one of these should be on at one time
+$NOLEADSalert = preg_replace('/[^-_0-9a-zA-Z]/', '', $NOLEADSalert);
+$DROPINGROUPstats = preg_replace('/[^-_0-9a-zA-Z]/', '', $DROPINGROUPstats);
+$ALLINGROUPstats = preg_replace('/[^-_0-9a-zA-Z]/', '', $ALLINGROUPstats);
+$with_inbound = preg_replace('/[^-_0-9a-zA-Z]/', '', $with_inbound);
+$monitor_active = preg_replace('/[^-_0-9a-zA-Z]/', '', $monitor_active);
+$monitor_phone = preg_replace('/[^-_0-9a-zA-Z]/', '', $monitor_phone);
+$CARRIERstats = preg_replace('/[^-_0-9a-zA-Z]/', '', $CARRIERstats);
+$PRESETstats = preg_replace('/[^-_0-9a-zA-Z]/', '', $PRESETstats);
+$AGENTtimeSTATS = preg_replace('/[^-_0-9a-zA-Z]/', '', $AGENTtimeSTATS);
+$parkSTATS = preg_replace('/[^-_0-9a-zA-Z]/', '', $parkSTATS);
+$SLAinSTATS = preg_replace('/[^-_0-9a-zA-Z]/', '', $SLAinSTATS);
+$INGROUPcolorOVERRIDE = preg_replace('/[^-_0-9a-zA-Z]/', '', $INGROUPcolorOVERRIDE);
+$droppedOFtotal = preg_replace('/[^-_0-9a-zA-Z]/', '', $droppedOFtotal);
+$report_display_type = preg_replace('/[^-_0-9a-zA-Z]/', '', $report_display_type);
+$mobile_device = preg_replace('/[^-_0-9a-zA-Z]/', '', $mobile_device);
+$RTdisplay_type = preg_replace('/[^-_0-9a-zA-Z]/', '', $RTdisplay_type);
+$RTajax = preg_replace('/[^-_0-9a-zA-Z]/', '', $RTajax);
+$RTpass = preg_replace('/[^-_0-9a-zA-Z]/', '', $RTpass);
+$RTuser = preg_replace('/[^-_0-9a-zA-Z]/', '', $RTuser);
+$server_ip = preg_replace('/[^-\._0-9a-zA-Z]/', '', $server_ip);
+$SUBMIT = preg_replace('/[^-_0-9a-zA-Z]/', '', $SUBMIT);
+$submit = preg_replace('/[^-_0-9a-zA-Z]/', '', $submit);
+
+# Variables filtered further down in the code
+# $user_group_filter
+# $ingroup_filter
 
 $stmt="SELECT selected_language from vicidial_users where user='$PHP_AUTH_USER';";
 if ($DB) {echo "|$stmt|\n";}
@@ -263,8 +314,16 @@ $auth=0;
 $reports_auth=0;
 $admin_auth=0;
 $auth_message = user_authorization($PHP_AUTH_USER,$PHP_AUTH_PW,'REPORTS',0,0);
-if ($auth_message == 'GOOD')
-	{$auth=1;}
+if ( ($auth_message == 'GOOD') or ($auth_message == '2FA') )
+	{
+	$auth=1;
+	if ($auth_message == '2FA')
+		{
+		header ("Content-type: text/html; charset=utf-8");
+		echo _QXZ("Your session is expired").". <a href=\"admin.php\">"._QXZ("Click here to log in")."</a>.\n";
+		exit;
+		}
+	}
 
 if ($auth > 0)
 	{
@@ -635,19 +694,19 @@ $NFB = '<b><font size=6 face="courier">';
 $NFE = '</font></b>';
 $F=''; $FG=''; $B=''; $BG='';
 
-$select_list = "<TABLE class=\"realtime_settings_table\" CELLPADDING=5 BGCOLOR=\"#D9E6FE\"><TR><TD VALIGN=TOP>"._QXZ("Select Campaigns").": <BR>";
+$select_list = "<TABLE class='realtime_settings_table' CELLPADDING=5 BGCOLOR='#D9E6FE'><TR><TD VALIGN=TOP>"._QXZ("Select Campaigns").": <BR>";
 $select_list .= "<SELECT SIZE=15 NAME=groups[] multiple>";
 $o=0;
 while ($groups_to_print > $o)
 	{
 	if (preg_match("/\|$LISTgroups[$o]\|/",$group_string)) 
-		{$select_list .= "<option selected value=\"$LISTgroups[$o]\">$LISTgroups[$o] - $LISTnames[$o]</option>";}
+		{$select_list .= "<option selected value='$LISTgroups[$o]'>$LISTgroups[$o] - $LISTnames[$o]</option>";}
 	else
-		{$select_list .= "<option value=\"$LISTgroups[$o]\">$LISTgroups[$o] - $LISTnames[$o]</option>";}
+		{$select_list .= "<option value='$LISTgroups[$o]'>$LISTgroups[$o] - $LISTnames[$o]</option>";}
 	$o++;
 	}
 $select_list .= "</SELECT>";
-$select_list .= "<BR><font class=\"top_settings_val\">"._QXZ("(To select more than 1 campaign, hold down the Ctrl key and click)")."<font>";
+$select_list .= "<BR><font class='top_settings_val'>"._QXZ("(To select more than 1 campaign, hold down the Ctrl key and click)")."<font>";
 
 $select_list .= "<BR><BR>"._QXZ("Select User Groups").": <BR>";
 $select_list .= "<SELECT SIZE=8 NAME=user_group_filter[] ID=user_group_filter[] multiple>";
@@ -655,9 +714,9 @@ $o=0;
 while ($o < $usergroups_to_print)
 	{
 	if (preg_match("/\|$usergroups[$o]\|/",$user_group_filter_string)) 
-		{$select_list .= "<option selected value=\"$usergroups[$o]\">$usergroups[$o] - $usergroupnames[$o]</option>";}
+		{$select_list .= "<option selected value='$usergroups[$o]'>$usergroups[$o] - $usergroupnames[$o]</option>";}
 	else
-		{$select_list .= "<option value=\"$usergroups[$o]\">$usergroups[$o] - $usergroupnames[$o]</option>";}
+		{$select_list .= "<option value='$usergroups[$o]'>$usergroups[$o] - $usergroupnames[$o]</option>";}
 	$o++;
 	}
 $select_list .= "</SELECT>";
@@ -681,36 +740,36 @@ while ($o < $ingroups_to_print)
 $select_list .= "</SELECT>";
 
 $select_list .= "</TD><TD VALIGN=TOP ALIGN=CENTER>";
-$select_list .= "<a href=\"#\" onclick=\"closeDiv(\'campaign_select_list\');\">"._QXZ("Close Panel")."</a><BR><BR>";
+$select_list .= "<a href='#' onclick=\\\"closeDiv('campaign_select_list');\\\">"._QXZ("Close Panel")."</a><BR><BR>";
 $select_list .= "<TABLE CELLPADDING=2 CELLSPACING=2 BORDER=0>";
 
 $select_list .= "<TR><TD align=right>";
 $select_list .= _QXZ("Inbound").":  </TD><TD align=left><SELECT SIZE=1 NAME=with_inbound>";
-$select_list .= "<option value=\"N\"";
+$select_list .= "<option value='N'";
 	if ($with_inbound=='N') {$select_list .= " selected";} 
 $select_list .= ">"._QXZ("No")."</option>";
-$select_list .= "<option value=\"Y\"";
+$select_list .= "<option value='Y'";
 	if ($with_inbound=='Y') {$select_list .= " selected";} 
 $select_list .= ">"._QXZ("Yes")."</option>";
-$select_list .= "<option value=\"O\"";
+$select_list .= "<option value='O'";
 	if ($with_inbound=='O') {$select_list .= " selected";} 
 $select_list .= ">"._QXZ("Only")."</option>";
 $select_list .= "</SELECT></TD></TR>";
 
 $select_list .= "<TR><TD align=right>";
 $select_list .= _QXZ("Monitor").":  </TD><TD align=left><SELECT SIZE=1 NAME=monitor_active>";
-$select_list .= "<option value=\"\"";
+$select_list .= "<option value=''";
 	if (strlen($monitor_active) < 2) {$select_list .= " selected";} 
 $select_list .= ">"._QXZ("NONE")."</option>";
 if (preg_match("/MONITOR/",$RS_ListenBarge) )
 	{
-	$select_list .= "<option value=\"MONITOR\"";
+	$select_list .= "<option value='MONITOR'";
 		if ($monitor_active=='MONITOR') {$select_list .= " selected";} 
 	$select_list .= ">"._QXZ("MONITOR")."</option>";
 	}
 if (preg_match("/BARGE/",$RS_ListenBarge) )
 	{
-	$select_list .= "<option value=\"BARGE\"";
+	$select_list .= "<option value='BARGE'";
 		if ($monitor_active=='BARGE') {$select_list .= " selected";} 
 	$select_list .= ">"._QXZ("BARGE")."</option>";
 	}
@@ -727,7 +786,7 @@ $select_list .= "</SELECT></TD></TR>";
 
 $select_list .= "<TR><TD align=right>";
 $select_list .= _QXZ("Phone").":  </TD><TD align=left>";
-$select_list .= "<INPUT type=text size=10 maxlength=20 NAME=monitor_phone VALUE=\"$monitor_phone\">";
+$select_list .= "<INPUT type=text size=10 maxlength=20 NAME=monitor_phone VALUE='$monitor_phone'>";
 $select_list .= "</TD></TR>";
 $select_list .= "<TR><TD align=center COLSPAN=2> &nbsp; </TD></TR>";
 
@@ -736,12 +795,12 @@ if ($UGdisplay > 0)
 	$select_list .= "<TR><TD align=right>";
 	$select_list .= _QXZ("Select User Group").":  </TD><TD align=left>";
 	$select_list .= "<SELECT SIZE=1 NAME=usergroup>";
-	$select_list .= "<option value=\"\">"._QXZ("ALL USER GROUPS")."</option>";
+	$select_list .= "<option value=''>"._QXZ("ALL USER GROUPS")."</option>";
 	$o=0;
 	while ($usergroups_to_print > $o)
 		{
-		if ($usergroups[$o] == $usergroup) {$select_list .= "<option selected value=\"$usergroups[$o]\">$usergroups[$o]</option>";}
-		else {$select_list .= "<option value=\"$usergroups[$o]\">$usergroups[$o]</option>";}
+		if ($usergroups[$o] == $usergroup) {$select_list .= "<option selected value='$usergroups[$o]'>$usergroups[$o]</option>";}
+		else {$select_list .= "<option value='$usergroups[$o]'>$usergroups[$o]</option>";}
 		$o++;
 		}
 	$select_list .= "</SELECT></TD></TR>";
@@ -749,30 +808,30 @@ if ($UGdisplay > 0)
 
 $select_list .= "<TR><TD align=right>";
 $select_list .= _QXZ("Dialable Leads Alert").":  </TD><TD align=left><SELECT SIZE=1 NAME=NOLEADSalert>";
-$select_list .= "<option value=\"\"";
+$select_list .= "<option value=''";
 	if (strlen($NOLEADSalert) < 2) {$select_list .= " selected";} 
 $select_list .= ">"._QXZ("NO")."</option>";
-$select_list .= "<option value=\"YES\"";
+$select_list .= "<option value='YES'";
 	if ($NOLEADSalert=='YES') {$select_list .= " selected";} 
 $select_list .= ">"._QXZ("YES")."</option>";
 $select_list .= "</SELECT></TD></TR>";
 
 $select_list .= "<TR><TD align=right>";
 $select_list .= _QXZ("Show Drop In-Group Row").":  </TD><TD align=left><SELECT SIZE=1 NAME=DROPINGROUPstats>";
-$select_list .= "<option value=\"0\"";
+$select_list .= "<option value='0'";
 	if ($DROPINGROUPstats < 1) {$select_list .= " selected";} 
 $select_list .= ">"._QXZ("NO")."</option>";
-$select_list .= "<option value=\"1\"";
+$select_list .= "<option value='1'";
 	if ($DROPINGROUPstats=='1') {$select_list .= " selected";} 
 $select_list .= ">"._QXZ("YES")."</option>";
 $select_list .= "</SELECT></TD></TR>";
 
 $select_list .= "<TR><TD align=right>";
 $select_list .= _QXZ("Show Carrier Stats").":  </TD><TD align=left><SELECT SIZE=1 NAME=CARRIERstats>";
-$select_list .= "<option value=\"0\"";
+$select_list .= "<option value='0'";
 	if ($CARRIERstats < 1) {$select_list .= " selected";} 
 $select_list .= ">"._QXZ("NO")."</option>";
-$select_list .= "<option value=\"1\"";
+$select_list .= "<option value='1'";
 	if ($CARRIERstats=='1') {$select_list .= " selected";} 
 $select_list .= ">"._QXZ("YES")."</option>";
 $select_list .= "</SELECT></TD></TR>";
@@ -792,10 +851,10 @@ if ($presets_enabled > 0)
 	{
 	$select_list .= "<TR><TD align=right>";
 	$select_list .= _QXZ("Show Presets Stats").":  </TD><TD align=left><SELECT SIZE=1 NAME=PRESETstats>";
-	$select_list .= "<option value=\"0\"";
+	$select_list .= "<option value='0'";
 		if ($PRESETstats < 1) {$select_list .= " selected";} 
 	$select_list .= ">"._QXZ("NO")."</option>";
-	$select_list .= "<option value=\"1\"";
+	$select_list .= "<option value='1'";
 		if ($PRESETstats=='1') {$select_list .= " selected";} 
 	$select_list .= ">"._QXZ("YES")."</option>";
 	$select_list .= "</SELECT></TD></TR>";
@@ -803,10 +862,10 @@ if ($presets_enabled > 0)
 
 $select_list .= "<TR><TD align=right>";
 $select_list .= _QXZ("Agent Time Stats").":  </TD><TD align=left><SELECT SIZE=1 NAME=AGENTtimeSTATS>";
-$select_list .= "<option value=\"0\"";
+$select_list .= "<option value='0'";
 	if ($AGENTtimeSTATS < 1) {$select_list .= " selected";} 
 $select_list .= ">"._QXZ("NO")."</option>";
-$select_list .= "<option value=\"1\"";
+$select_list .= "<option value='1'";
 	if ($AGENTtimeSTATS=='1') {$select_list .= " selected";} 
 $select_list .= ">"._QXZ("YES")."</option>";
 $select_list .= "</SELECT></TD></TR>";
@@ -834,14 +893,14 @@ $select_list .= ">"._QXZ("WALL_4")."</option>";
 $select_list .= "</SELECT></TD></TR>";
 
 $select_list .= "</TABLE><BR>";
-$select_list .= "<INPUT type=hidden name=droppedOFtotal value=\"$droppedOFtotal\">";
-$select_list .= "<INPUT style='background-color:#$SSbutton_color' type=submit NAME=SUBMIT VALUE=SUBMIT><FONT FACE=\"ARIAL,HELVETICA\" COLOR=BLACK SIZE=2> &nbsp; &nbsp; &nbsp; &nbsp; ";
+$select_list .= "<INPUT type=hidden name=droppedOFtotal value='$droppedOFtotal'>";
+$select_list .= "<INPUT style='background-color:#$SSbutton_color' type=submit NAME=SUBMIT VALUE=SUBMIT><FONT FACE='ARIAL,HELVETICA' COLOR=BLACK SIZE=2> &nbsp; &nbsp; &nbsp; &nbsp; ";
 $select_list .= "</TD></TR>";
 $select_list .= "<TR><TD ALIGN=CENTER>";
-$select_list .= "<font class=\"top_settings_val\"> &nbsp; </font>";
+$select_list .= "<font class='top_settings_val'> &nbsp; </font>";
 $select_list .= "</TD>";
 $select_list .= "<TD NOWRAP align=right>";
-$select_list .= "<font class=\"top_settings_val\">"._QXZ("VERSION").": $version &nbsp; "._QXZ("BUILD").": $build</font>";
+$select_list .= "<font class='top_settings_val'>"._QXZ("VERSION").": $version &nbsp; "._QXZ("BUILD").": $build</font>";
 $select_list .= "</TD></TR></TABLE>";
 
 $open_list = '<TABLE WIDTH=250 CELLPADDING=0 CELLSPACING=0 BGCOLOR=\'#D9E6FE\'><TR><TD ALIGN=CENTER><a href=\'#\' onclick=\\"openDiv(\'campaign_select_list\');\\"><font class=\'top_settings_val\'>'._QXZ("Choose Report Display Options").'</a></TD></TR></TABLE>';
@@ -1125,6 +1184,7 @@ else
 		.Hfr3 {color: black; background-color: #FF6666; font-family: HELVETICA; font-size: 18; font-weight: bold;}
 		.Hfr4 {color: white; background-color: #FF0000; font-family: HELVETICA; font-size: 18; font-weight: bold;}
 
+		.realtime_settings_table {width: 50vw; max-width: 600px; }
 	<?php
 		$stmt="SELECT group_id,group_color from vicidial_inbound_groups;";
 		$rslt=mysql_to_mysqli($stmt, $link);

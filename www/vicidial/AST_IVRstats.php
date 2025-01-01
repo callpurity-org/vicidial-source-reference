@@ -1,7 +1,7 @@
 <?php 
 # AST_IVRstats.php
 # 
-# Copyright (C) 2019  Matt Florell <vicidial@gmail.com>    LICENSE: AGPLv2
+# Copyright (C) 2024  Matt Florell <vicidial@gmail.com>    LICENSE: AGPLv2
 #
 # CHANGES
 # 81026-2026 - First build
@@ -41,6 +41,8 @@
 # 171012-2015 - Fixed javascript/apache errors with graphs
 # 180507-2315 - Added new help display
 # 191013-0835 - Fixes for PHP7
+# 220221-0926 - Added allow_web_debug system setting
+# 240801-1130 - Code updates for PHP8 compatibility
 #
 
 $startMS = microtime();
@@ -51,6 +53,7 @@ require("functions.php");
 $PHP_AUTH_USER=$_SERVER['PHP_AUTH_USER'];
 $PHP_AUTH_PW=$_SERVER['PHP_AUTH_PW'];
 $PHP_SELF=$_SERVER['PHP_SELF'];
+$PHP_SELF = preg_replace('/\.php.*/i','.php',$PHP_SELF);
 if (isset($_GET["group"]))				{$group=$_GET["group"];}
 	elseif (isset($_POST["group"]))		{$group=$_POST["group"];}
 if (isset($_GET["query_date"]))				{$query_date=$_GET["query_date"];}
@@ -76,6 +79,14 @@ if (isset($_GET["search_archived_data"]))			{$search_archived_data=$_GET["search
 
 if (strlen($shift)<2) {$shift='ALL';}
 if (strlen($type)<2) {$type='inbound';}
+$NOW_DATE = date("Y-m-d");
+$NOW_TIME = date("Y-m-d H:i:s");
+$STARTtime = date("U");
+if (!is_array($group)) {$group = array();}
+if (!isset($query_date)) {$query_date = "$NOW_DATE 00:00:00";}
+if (!isset($end_date)) {$end_date = "$NOW_DATE 23:23:59";}
+
+$DB=preg_replace("/[^0-9a-zA-Z]/","",$DB);
 
 if ($type == 'inbound')
 	{$report_name = 'Inbound IVR Report';}
@@ -85,9 +96,9 @@ $db_source = 'M';
 
 #############################################
 ##### START SYSTEM_SETTINGS LOOKUP #####
-$stmt = "SELECT use_non_latin,outbound_autodial_active,slave_db_server,reports_use_slave_db,enable_languages,language_method,report_default_format FROM system_settings;";
+$stmt = "SELECT use_non_latin,outbound_autodial_active,slave_db_server,reports_use_slave_db,enable_languages,language_method,report_default_format,allow_web_debug FROM system_settings;";
 $rslt=mysql_to_mysqli($stmt, $link);
-if ($DB) {$MAIN.="$stmt\n";}
+#if ($DB) {$MAIN.="$stmt\n";}
 $qm_conf_ct = mysqli_num_rows($rslt);
 if ($qm_conf_ct > 0)
 	{
@@ -99,10 +110,12 @@ if ($qm_conf_ct > 0)
 	$SSenable_languages =			$row[4];
 	$SSlanguage_method =			$row[5];
 	$SSreport_default_format =		$row[6];
+	$SSallow_web_debug =			$row[7];
 	}
+if (strlen($report_display_type)<2) {$report_display_type = $SSreport_default_format;}
+if ($SSallow_web_debug < 1) {$DB=0;}
 ##### END SETTINGS LOOKUP #####
 ###########################################
-if (strlen($report_display_type)<2) {$report_display_type = $SSreport_default_format;}
 
 ### ARCHIVED DATA CHECK CONFIGURATION
 $archives_available="N";
@@ -128,15 +141,29 @@ else
 	}
 #############
 
+$report_display_type = preg_replace('/[^-_0-9a-zA-Z]/', '', $report_display_type);
+$query_date = preg_replace('/[^- \:\_0-9a-zA-Z]/',"",$query_date);
+$end_date = preg_replace('/[^- \:\_0-9a-zA-Z]/',"",$end_date);
+$file_download = preg_replace('/[^-_0-9a-zA-Z]/', '', $file_download);
+$type = preg_replace('/[^-_0-9a-zA-Z]/', '', $type);
+$search_archived_data = preg_replace('/[^-_0-9a-zA-Z]/', '', $search_archived_data);
+$submit = preg_replace('/[^-_0-9a-zA-Z]/', '', $submit);
+$SUBMIT = preg_replace('/[^-_0-9a-zA-Z]/', '', $SUBMIT);
+
+# Variables filtered further down in the code
+# $group
+
 if ($non_latin < 1)
 	{
 	$PHP_AUTH_USER = preg_replace('/[^-_0-9a-zA-Z]/', '', $PHP_AUTH_USER);
 	$PHP_AUTH_PW = preg_replace('/[^-_0-9a-zA-Z]/', '', $PHP_AUTH_PW);
+	$shift = preg_replace('/[^-_0-9a-zA-Z]/', '', $shift);
 	}
 else
 	{
-	$PHP_AUTH_PW = preg_replace("/'|\"|\\\\|;/","",$PHP_AUTH_PW);
-	$PHP_AUTH_USER = preg_replace("/'|\"|\\\\|;/","",$PHP_AUTH_USER);
+	$PHP_AUTH_USER = preg_replace('/[^-_0-9\p{L}]/u', '', $PHP_AUTH_USER);
+	$PHP_AUTH_PW = preg_replace('/[^-_0-9\p{L}]/u', '', $PHP_AUTH_PW);
+	$shift = preg_replace('/[^-_0-9\p{L}]/u', '', $shift);
 	}
 
 $stmt="SELECT selected_language from vicidial_users where user='$PHP_AUTH_USER';";
@@ -214,9 +241,9 @@ $LOGserver_name = getenv("SERVER_NAME");
 $LOGserver_port = getenv("SERVER_PORT");
 $LOGrequest_uri = getenv("REQUEST_URI");
 $LOGhttp_referer = getenv("HTTP_REFERER");
-$LOGbrowser=preg_replace("/\'|\"|\\\\/","",$LOGbrowser);
-$LOGrequest_uri=preg_replace("/\'|\"|\\\\/","",$LOGrequest_uri);
-$LOGhttp_referer=preg_replace("/\'|\"|\\\\/","",$LOGhttp_referer);
+$LOGbrowser=preg_replace("/<|>|\'|\"|\\\\/","",$LOGbrowser);
+$LOGrequest_uri=preg_replace("/<|>|\'|\"|\\\\/","",$LOGrequest_uri);
+$LOGhttp_referer=preg_replace("/<|>|\'|\"|\\\\/","",$LOGhttp_referer);
 if (preg_match("/443/i",$LOGserver_port)) {$HTTPprotocol = 'https://';}
   else {$HTTPprotocol = 'http://';}
 if (($LOGserver_port == '80') or ($LOGserver_port == '443') ) {$LOGserver_port='';}
@@ -246,7 +273,7 @@ else
 	$webserver_id = mysqli_insert_id($link);
 	}
 
-$stmt="INSERT INTO vicidial_report_log set event_date=NOW(), user='$PHP_AUTH_USER', ip_address='$LOGip', report_name='$report_name', browser='$LOGbrowser', referer='$LOGhttp_referer', notes='$LOGserver_name:$LOGserver_port $LOGscript_name |$group[0], $query_date, $end_date, $shift, $file_download, $report_display_type|', url='$LOGfull_url', webserver='$webserver_id';";
+$stmt="INSERT INTO vicidial_report_log set event_date=NOW(), user='$PHP_AUTH_USER', ip_address='$LOGip', report_name='$report_name', browser='$LOGbrowser', referer='$LOGhttp_referer', notes='$LOGserver_name:$LOGserver_port $LOGscript_name |$query_date, $end_date, $shift, $file_download, $report_display_type|', url='$LOGfull_url', webserver='$webserver_id';";
 if ($DB) {echo "|$stmt|\n";}
 $rslt=mysql_to_mysqli($stmt, $link);
 $report_log_id = mysqli_insert_id($link);
@@ -313,13 +340,6 @@ if ( (!preg_match("/$report_name/",$LOGallowed_reports)) and (!preg_match("/ALL 
     echo _QXZ("You are not allowed to view this report").": |$PHP_AUTH_USER|$report_name|\n";
     exit;
 	}
-
-$NOW_DATE = date("Y-m-d");
-$NOW_TIME = date("Y-m-d H:i:s");
-$STARTtime = date("U");
-if (!isset($group)) {$group = array();}
-if (!isset($query_date)) {$query_date = "$NOW_DATE 00:00:00";}
-if (!isset($end_date)) {$end_date = "$NOW_DATE 23:23:59";}
 
 
 ##### BEGIN Generate select list for which in-groups or campaigns to display #####
@@ -401,6 +421,7 @@ $group_string='|';
 $group_ct = count($group);
 while($i < $group_ct)
 	{
+	$group[$i] = preg_replace('/[^-_0-9\p{L}]/u','',$group[$i]);
 	$group_string .= "$group[$i]|";
 	$group_SQL .= "'$group[$i]',";
 	$groupQS .= "&group[]=$group[$i]";
@@ -951,9 +972,7 @@ else
 
 		$s++;
 		}
-	$TOTALcalls = sprintf("%6s", $TOTALcalls);
-	$totFLOWtotal = sprintf("%6s", $totFLOWtotal);
-	$totFLOWdrop = sprintf("%6s", $totFLOWdrop);
+	
 	$TavgFLOWivr_time = MathZDC($totFLOWivr_time, $TOTALcalls);
 	$TavgFLOWivr_time = round($TavgFLOWivr_time, 0);
 	$TavgFLOWivr_time = sprintf("%4s", $TavgFLOWivr_time);
@@ -963,6 +982,9 @@ else
 	$totFLOWdropPCT = (MathZDC($totFLOWdrop, $totFLOWtotal) * 100);
 	$totFLOWdropPCT = round($totFLOWdropPCT, 0);
 	$totFLOWdropPCT = sprintf("%5s", $totFLOWdropPCT);
+	$TOTALcalls = sprintf("%6s", $TOTALcalls);
+	$totFLOWtotal = sprintf("%6s", $totFLOWtotal);
+	$totFLOWdrop = sprintf("%6s", $totFLOWdrop);
 
 	$ASCII_text.="+--------+--------+--------+--------+------+------+------------\n";
 	$ASCII_text.="| $TOTALcalls | $totFLOWtotal | $totFLOWdrop | $totFLOWdropPCT% | $TavgFLOWivr_time | $TavgFLOWtotal_time |\n";

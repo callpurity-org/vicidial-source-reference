@@ -1,7 +1,7 @@
 <?php
 # callbacks_bulk_move.php
 # 
-# Copyright (C) 2019  Matt Florell <vicidial@gmail.com>    LICENSE: AGPLv2
+# Copyright (C) 2024  Matt Florell <vicidial@gmail.com>    LICENSE: AGPLv2
 #
 # CHANGES
 # 150218-0923 - First build based on callbacks_bulk_change.php
@@ -10,6 +10,10 @@
 # 170409-1548 - Added IP List validation code
 # 180508-0115 - Added new help display
 # 191013-0853 - Fixes for PHP7
+# 220224-1656 - Added allow_web_debug system setting
+# 231129-1404 - 'SQL/x' variable bug fix
+# 240801-1130 - Code updates for PHP8 compatibility
+# 241115-1501 - Fixes for purging of callbacks
 #
 
 require("dbconnect_mysqli.php");
@@ -18,6 +22,7 @@ require("functions.php");
 $PHP_AUTH_USER=$_SERVER['PHP_AUTH_USER'];
 $PHP_AUTH_PW=$_SERVER['PHP_AUTH_PW'];
 $PHP_SELF=$_SERVER['PHP_SELF'];
+$PHP_SELF = preg_replace('/\.php.*/i','.php',$PHP_SELF);
 if (isset($_GET["days"]))				{$days=$_GET["days"];}
 	elseif (isset($_POST["days"]))		{$days=$_POST["days"];}
 if (isset($_GET["user"]))				{$user=$_GET["user"];}
@@ -38,7 +43,6 @@ if (isset($_GET["submit"]))				{$submit=$_GET["submit"];}
 	elseif (isset($_POST["submit"]))	{$submit=$_POST["submit"];}
 if (isset($_GET["SUBMIT"]))				{$SUBMIT=$_GET["SUBMIT"];}
 	elseif (isset($_POST["SUBMIT"]))	{$SUBMIT=$_POST["SUBMIT"];}
-
 if (isset($_GET["new_list_id"]))			{$new_list_id=$_GET["new_list_id"];}
 	elseif (isset($_POST["new_list_id"]))	{$new_list_id=$_POST["new_list_id"];}
 if (isset($_GET["new_status"]))				{$new_status=$_GET["new_status"];}
@@ -60,11 +64,13 @@ if (isset($_GET["purge_uncalled_records"]))			{$purge_uncalled_records=$_GET["pu
 if (isset($_GET["revert_status"]))			{$revert_status=$_GET["revert_status"];}
 	elseif (isset($_POST["revert_status"]))	{$revert_status=$_POST["revert_status"];}
 
+$DB=preg_replace("/[^0-9a-zA-Z]/","",$DB);
+
 #############################################
 ##### START SYSTEM_SETTINGS LOOKUP #####
-$stmt = "SELECT use_non_latin,webroot_writable,outbound_autodial_active,enable_languages,language_method,qc_features_active FROM system_settings;";
+$stmt = "SELECT use_non_latin,webroot_writable,outbound_autodial_active,enable_languages,language_method,qc_features_active,allow_web_debug FROM system_settings;";
 $rslt=mysql_to_mysqli($stmt, $link);
-if ($DB) {echo "$stmt\n";}
+#if ($DB) {echo "$stmt\n";}
 $qm_conf_ct = mysqli_num_rows($rslt);
 if ($qm_conf_ct > 0)
 	{
@@ -75,26 +81,59 @@ if ($qm_conf_ct > 0)
 	$SSenable_languages =			$row[3];
 	$SSlanguage_method =			$row[4];
 	$SSqc_features_active =			$row[5];
+	$SSallow_web_debug =			$row[6];
 	}
+if ($SSallow_web_debug < 1) {$DB=0;}
 ##### END SETTINGS LOOKUP #####
 ###########################################
+
+$list_id = preg_replace('/[^0-9a-zA-Z]/', '', $list_id);
+$new_list_id = preg_replace('/[^0-9a-zA-Z]/', '', $new_list_id);
+$days = preg_replace('/[^-0-9]/', '', $days);
+$days_uncalled = preg_replace('/[^-0-9]/', '', $days_uncalled);
+$stage = preg_replace('/[^-_0-9a-zA-Z]/', '', $stage);
+$confirm_transfer = preg_replace('/[^-_0-9a-zA-Z]/', '', $confirm_transfer);
+$submit = preg_replace('/[^-_0-9a-zA-Z]/', '', $submit);
+$SUBMIT = preg_replace('/[^-_0-9a-zA-Z]/', '', $SUBMIT);
+$purge_called_records = preg_replace('/[^-_0-9a-zA-Z]/', '', $purge_called_records);
+$purge_uncalled_records = preg_replace('/[^-_0-9a-zA-Z]/', '', $purge_uncalled_records);
+
+# Variables filtered further down in the code
+# $cb_lists
+# $cb_groups
+# $cb_user_groups
+# $cb_users
 
 if ($non_latin < 1)
 	{
 	$PHP_AUTH_USER = preg_replace('/[^-_0-9a-zA-Z]/', '', $PHP_AUTH_USER);
 	$PHP_AUTH_PW = preg_replace('/[^-_0-9a-zA-Z]/', '', $PHP_AUTH_PW);
+	$revert_status = preg_replace('/[^-_0-9a-zA-Z]/', '', $revert_status);
+	$new_status = preg_replace('/[^-_0-9a-zA-Z]/', '', $new_status);
+	$campaign_id = preg_replace('/[^-_0-9a-zA-Z]/', '', $campaign_id);
+	$user = preg_replace('/[^-_0-9a-zA-Z]/', '', $user);
+	$user_group = preg_replace('/[^-_0-9a-zA-Z]/', '', $user_group);
 	}
 else
 	{
-	$PHP_AUTH_PW = preg_replace("/'|\"|\\\\|;/","",$PHP_AUTH_PW);
-	$PHP_AUTH_USER = preg_replace("/'|\"|\\\\|;/","",$PHP_AUTH_USER);
+	$PHP_AUTH_USER = preg_replace('/[^-_0-9\p{L}]/u', '', $PHP_AUTH_USER);
+	$PHP_AUTH_PW = preg_replace('/[^-_0-9\p{L}]/u', '', $PHP_AUTH_PW);
+	$revert_status = preg_replace('/[^-_0-9\p{L}]/u', '', $revert_status);
+	$new_status = preg_replace('/[^-_0-9\p{L}]/u', '', $new_status);
+	$campaign_id = preg_replace('/[^-_0-9\p{L}]/u', '', $campaign_id);
+	$user = preg_replace('/[^-_0-9\p{L}]/u', '', $user);
+	$user_group = preg_replace('/[^-_0-9\p{L}]/u', '', $user_group);
 	}
 
 $StarTtimE = date("U");
 $TODAY = date("Y-m-d");
 $NOW_TIME = date("Y-m-d H:i:s");
-if (!isset($group)) {$group=array();}
-if (!isset($users)) {$users=array();}
+if (!is_array($group)) {$group=array();}
+if (!is_array($users)) {$users=array();}
+if (!is_array($cb_users)) {$cb_users=array();}
+if (!is_array($cb_user_groups)) {$cb_user_groups=array();}
+if (!is_array($cb_lists)) {$cb_lists=array();}
+if (!is_array($cb_groups)) {$cb_groups=array();}
 $ip = getenv("REMOTE_ADDR");
 $date = date("r");
 $ip = getenv("REMOTE_ADDR");
@@ -118,6 +157,7 @@ if (strlen($user) < 1)			{$category='USERS';			$record_id=$user;}
 if (strlen($user_group) < 1)	{$category='USERGROUPS';	$record_id=$user_group;}
 if (strlen($list_id) < 1)		{$category='LISTS';			$record_id=$list_id;}
 if (strlen($campaign_id) < 1)	{$category='CAMPAIGNS';		$record_id=$campaign_id;}
+$cb_dispos=array("CALLBK","CBHOLD");
 
 $auth=0;
 $auth_message = user_authorization($PHP_AUTH_USER,$PHP_AUTH_PW,'',1,0);
@@ -546,12 +586,16 @@ if ($SUBMIT && $new_list_id && ($new_status || $revert_status))
 			}
 		else 
 			{
-			$usersSQL=" and vc.user in ('".implode("','", $cb_users)."') ";
+			$usersSQLx="";
 			$usersQS="";
 			for ($i=0; $i<count($cb_users); $i++) 
 				{
+				$cb_users[$i] = preg_replace('/[^-_0-9\p{L}]/u', '', $cb_users[$i]);
 				$usersQS.="&cb_users[]=".$cb_users[$i];
+				if ($i > 0) {$usersSQLx.="','";}
+				$usersSQLx.="$cb_users[$i]";
 				}
+			$usersSQL=" and vc.user in ('".$usersSQLx."') ";
 			}
 		}
 
@@ -573,12 +617,16 @@ if ($SUBMIT && $new_list_id && ($new_status || $revert_status))
 			}
 		else 
 			{
-			$user_groupsSQL=" and vc.user_group in ('".implode("','", $cb_user_groups)."') ";
+			$user_groupsSQLx="";
 			$user_groupsQS="";
 			for ($i=0; $i<count($cb_user_groups); $i++) 
 				{
+				$cb_user_groups[$i] = preg_replace('/[^-_0-9\p{L}]/u', '', $cb_user_groups[$i]);
 				$user_groupsQS.="&cb_user_groups[]=".$cb_user_groups[$i];
+				if ($i > 0) {$user_groupsSQLx.="','";}
+				$user_groupsSQLx.="$cb_user_groups[$i]";
 				}
+			$user_groupsSQL=" and vc.user_group in ('".$user_groupsSQLx."') ";
 			}
 		}
 
@@ -609,12 +657,16 @@ if ($SUBMIT && $new_list_id && ($new_status || $revert_status))
 			}
 		else 
 			{
-			$listsSQL=" and vc.list_id in ('".implode("','", $cb_lists)."') ";
+			$listsSQLx="";
 			$listsQS="";
 			for ($i=0; $i<count($cb_lists); $i++) 
 				{
+				$cb_lists[$i] = preg_replace('/[^-_0-9\p{L}]/u', '', $cb_lists[$i]);
 				$listsQS.="&cb_lists[]=".$cb_lists[$i];
+				if ($i > 0) {$listsSQLx.="','";}
+				$listsSQLx.="$cb_lists[$i]";
 				}
+			$listsSQL=" and vc.list_id in ('".$listsSQLx."') ";
 			}
 		}
 
@@ -636,12 +688,16 @@ if ($SUBMIT && $new_list_id && ($new_status || $revert_status))
 			}
 		else
 			{
-			$groupsSQL=" and vc.campaign_id in ('".implode("','", $cb_groups)."') ";
+			$groupsSQLx="";
 			$groupsQS="";
 			for ($i=0; $i<count($cb_groups); $i++) 
 				{
+				$cb_groups[$i] = preg_replace('/[^-_0-9\p{L}]/u', '', $cb_groups[$i]);
 				$groupsQS.="&cb_groups[]=".$cb_groups[$i];
+				if ($i > 0) {$groupsSQLx.="','";}
+				$groupsSQLx.="$cb_groups[$i]";
 				}
+			$groupsSQL=" and vc.campaign_id in ('".$groupsSQLx."') ";
 			}
 		}
 
@@ -652,10 +708,10 @@ if ($SUBMIT && $new_list_id && ($new_status || $revert_status))
 #	else 
 #		{}
 
+	$groupsSQL=preg_replace('/ in \(\)/', ' in (\'\')', $groupsSQL);
 	$callback_dispo_stmt="SELECT distinct status from vicidial_statuses where scheduled_callback='Y' UNION SELECT distinct status from vicidial_campaign_statuses where scheduled_callback='Y' ".preg_replace("/vc\./", "", $groupsSQL);
 	if ($DB) {echo $callback_dispo_stmt."<BR>";}
 	$callback_dispo_rslt=mysql_to_mysqli($callback_dispo_stmt, $link);
-	$cb_dispos=array("CALLBK","CBHOLD");
 	while ($cb_dispo_row=mysqli_fetch_row($callback_dispo_rslt)) 
 		{
 		array_push($cb_dispos, "$cb_dispo_row[0]");
@@ -696,9 +752,15 @@ if ($SUBMIT && $new_list_id && ($new_status || $revert_status) && (count($cb_use
 	{
 	$actual_archived_ct=0;
 	$actual_purged_ct=0;
+	$actual_callback_ct=0;
 	$arch_stmts='';
 	$del_stmts='';
+	$upd_stmts='';
+	$new_listSQL="list_id='$new_list_id',";
+	if ($new_list_id == 'X')
+		{$new_listSQL='';}
 
+	# PURGE RECORDS, IF EITHER OPTION WAS SELECTED
 	if ($purge_trigger>0)
 		{
 		$stmt = "SELECT vc.callback_id, vc.lead_id, vc.status from vicidial_callbacks vc, vicidial_list vl where $purge_clause and vc.lead_id=vl.lead_id $usersSQL $user_groupsSQL $listsSQL $groupsSQL $daySQL;";
@@ -707,6 +769,64 @@ if ($SUBMIT && $new_list_id && ($new_status || $revert_status) && (count($cb_use
 		
 		while($row=mysqli_fetch_row($rslt)) 
 			{
+			$lead_id=$row[1];
+
+			if ($revert_status) 
+				{
+				$callback_entry_time=$cb_row[3];
+				# SET UPDATE STATUS TO NEW IN CASE NO CALL HISTORY IS FOUND BEFORE LEAD WAS MARKED CALLBACK
+				$new_status='NEW';
+				$callback_time_clause=" and call_date<='$callback_entry_time'";
+				$sort_by="desc";
+
+				# FIND THE STATUS THE CALLBACK WAS BEFORE THE CALL THAT THE AGENT DISPO'ED IT AS, IF IT EXISTS
+				$revert_stmt="select event_time, status, uniqueid from vicidial_agent_log where lead_id='$lead_id' and event_time<='$callback_entry_time' and status not in ('".implode("','", $cb_dispos)."') order by event_time desc limit 1";
+				$revert_rslt=mysql_to_mysqli($revert_stmt, $link);
+				if (mysqli_num_rows($revert_rslt)>0) 
+					{
+					$revert_row=mysqli_fetch_row($revert_rslt);
+					if ($revert_row[0]!="") 
+						{
+						$callback_entry_time=$revert_row[0]; # THIS BECOMES THE MOST RECENT CALLBACK TIME TO CHECK THE CLOSER LOG FOR
+						$new_status=$revert_row[1];
+						$callback_time_clause="  and call_date>='$callback_entry_time' and call_date<'$cb_row[3]' ";
+						}
+					} 
+
+				# FIND ANY OUTBOUND CALL MADE AFTER CALL WAS DISPO'ED BY AGENT AND NOT A CALLBACK
+				$revert_stmt2="select call_date, status, uniqueid from vicidial_log where lead_id='$lead_id' $callback_time_clause and status not in ('".implode("','", $cb_dispos)."') order by call_date desc limit 1";
+				$revert_rslt2=mysql_to_mysqli($revert_stmt2, $link);
+				if (mysqli_num_rows($revert_rslt2)>0) 
+					{
+					$revert_row2=mysqli_fetch_row($revert_rslt2);
+					if ($revert_row2[0]!="") 
+						{
+						$callback_entry_time=$revert_row2[0];
+						$new_status=$revert_row2[1];
+						$callback_time_clause="  and call_date>='$callback_entry_time' and call_date<'$cb_row[3]' ";
+						}
+					}
+
+				# FIND ANY INBOUND CALL MADE AFTER CALL WAS DISPO'ED BY AGENT AND NOT A CALLBACK
+				$revert_stmt3="select call_date, status, closecallid from vicidial_closer_log where lead_id='$lead_id' $callback_time_clause and status not in ('".implode("','", $cb_dispos)."') order by call_date asc limit 1";
+				$revert_rslt3=mysql_to_mysqli($revert_stmt3, $link);
+				if (mysqli_num_rows($revert_rslt3)>0) 
+					{
+					$revert_row3=mysqli_fetch_row($revert_rslt3);
+					if ($revert_row3[0]!="") 
+						{
+						$callback_entry_time=$revert_row3[0];
+						$new_status=$revert_row3[1];
+						}
+					}
+				if ($DB) {echo "|$cb_row[0]<BR>$revert_stmt - $revert_row[2]<BR>$revert_stmt2 - $revert_row2[2]<BR>$revert_stmt3 - $revert_row3[2]|\n";}
+				} 
+
+			$upd_stmt="update vicidial_list set $new_listSQL status='$new_status' where lead_id='$lead_id';";
+			$upd_rslt=mysql_to_mysqli($upd_stmt, $link);
+			$actual_callback_ct+=mysqli_affected_rows($link);
+			$upd_stmts .= " $upd_stmt";
+
 			$archive_stmt = "INSERT INTO vicidial_callbacks_archive SELECT * from vicidial_callbacks where callback_id='$row[0]';";
 			$archive_rslt=mysql_to_mysqli($archive_stmt, $link);
 			$actual_archived_ct+=mysqli_affected_rows($link);
@@ -721,16 +841,11 @@ if ($SUBMIT && $new_list_id && ($new_status || $revert_status) && (count($cb_use
 			# $callback_stmt="SELECT vc.callback_id, vc.lead_id, vc.status from vicidial_callbacks vc, vicidial_list vl where vc.status='LIVE' and vl.status in ('".implode("','", $cb_dispos)."') and vc.lead_id=vl.lead_id $usersSQL $user_groupsSQL $listsSQL $groupsSQL $daySQL";
 		}
 
+	# There shouldn't be any eligible callbacks left at this point if the purge options were selected, but just in case.  Perhaps this should be an "else" clause?
 	$callback_stmt="SELECT vc.callback_id, vc.lead_id, vc.status, vc.entry_time from vicidial_callbacks vc where status in ($callback_statuses) $usersSQL $user_groupsSQL $listsSQL $groupsSQL $daySQL order by callback_time asc";
 	if ($DB) {echo "|$callback_stmt|\n";}
-
 	$callback_rslt=mysql_to_mysqli($callback_stmt, $link);
-	$callback_ct=mysqli_num_rows($callback_rslt);
-	$actual_callback_ct=0;
-	$new_listSQL="list_id='$new_list_id',";
-	if ($new_list_id == 'X')
-		{$new_listSQL='';}
-	$upd_stmts='';
+	$callback_ct=$purge_ct+mysqli_num_rows($callback_rslt);
 	while ($cb_row=mysqli_fetch_row($callback_rslt)) 
 		{
 		$lead_id=$cb_row[1];
@@ -804,16 +919,19 @@ if ($SUBMIT && $new_list_id && ($new_status || $revert_status) && (count($cb_use
 	$rslt=mysql_to_mysqli($stmt, $link);
 
 	echo "<table width='500' align='center'><tr><td align='left'>";
-	if ($purge_called_records) 
-		{
-		echo "<B>"._QXZ("PURGE COMPLETE")."</B>";
-		echo "<UL><LI>$purge_ct "._QXZ("RECORDS FOUND")."</LI>";
-		echo "<LI>$actual_purged_ct "._QXZ("RECORDS PURGED")."</LI></UL>";
-		echo "<BR><BR>";
-		}
-	echo "<B>"._QXZ("LEAD UPDATE COMPLETE")."</B>";
+	echo "<B>"._QXZ("BULK MOVE PROCESS COMPLETE")."</B>";
 	echo "<UL><LI>$callback_ct "._QXZ("RECORDS FOUND")."</LI>";
-	echo "<LI>$actual_callback_ct "._QXZ("RECORDS MIGRATED TO")." $new_list_id</LI></UL><BR><BR>";
+	echo "<LI>$actual_archived_ct "._QXZ("RECORDS ARCHIVED")."</LI></UL>";
+ 
+	if ($purge_trigger>0) 
+		{
+		echo "<B>"._QXZ("PURGE RESULTS")."</B>";
+		echo "<UL><LI>$purge_ct "._QXZ("CALLBACK RECORDS FOUND")."</LI>";
+		echo "<LI>$actual_purged_ct "._QXZ("CALLBACK RECORDS PURGED")."</LI></UL>";
+		}
+
+	echo "<B>"._QXZ("LEAD UPDATE COMPLETE")."</B>";
+	echo "<UL><LI>$actual_callback_ct "._QXZ("RECORDS MIGRATED TO")." $new_list_id</LI></UL><BR><BR>";
 
 	echo "<a href='$PHP_SELF?DB=$DB'>"._QXZ("BACK")."</a><BR><BR>";
 	}
@@ -829,6 +947,8 @@ else if ($SUBMIT && $new_list_id  && ($new_status || $revert_status) && (count($
 		$callback_stmt="SELECT * from vicidial_callbacks vc, vicidial_list vl where $purge_clause and vc.lead_id=vl.lead_id $usersSQL $user_groupsSQL $listsSQL $groupsSQL $daySQL";
 
 		$purge_stmt="SELECT vc.status, vl.status from vicidial_callbacks vc, vicidial_list vl where $purge_clause and vc.lead_id=vl.lead_id $usersSQL $user_groupsSQL $listsSQL $groupsSQL $daySQL";
+		$purge_stmt=preg_replace('/ in \(\)/', ' in (\'\')', $purge_stmt);
+		if ($DB) {echo $purge_stmt."<BR>";}
 		$purge_rslt=mysql_to_mysqli($purge_stmt, $link);
 		$purge_ct=mysqli_num_rows($purge_rslt);
 		$purge_called_ct=0;
@@ -839,6 +959,7 @@ else if ($SUBMIT && $new_list_id  && ($new_status || $revert_status) && (count($
 			if ($purge_row[0]=="ACTIVE" || ($purge_row[0]=="LIVE" && in_array("$purge_row[1]", $cb_dispos))) {$purge_uncalled_ct++;} 
 			}
 		}
+	$callback_stmt=preg_replace('/ in \(\)/', ' in (\'\')', $callback_stmt);
 	$callback_rslt=mysql_to_mysqli($callback_stmt, $link);
 	$callback_ct=mysqli_num_rows($callback_rslt);
 	if ($DB) {echo $callback_stmt."<BR>";}
@@ -851,10 +972,30 @@ else if ($SUBMIT && $new_list_id  && ($new_status || $revert_status) && (count($
 
 	echo "<table width='500' align='center'><tr><td align='left'>";
 	echo _QXZ("You are about to transfer")." $callback_ct "._QXZ("callbacks from")."<BR><UL>\n";
-	if (count($cb_groups)>0) {echo "<LI>"._QXZ("campaigns")." ".implode(",", $cb_groups)."</LI>\n";}
-	if (count($cb_lists)>0) {echo "<LI>"._QXZ("lists")." ".implode(",", $cb_lists)."</LI>\n";}
-	if (count($cb_user_groups)>0) {echo"<LI>". _QXZ("user groups")." ".implode(",", $cb_user_groups)."</LI>\n";}
-	if (count($cb_users)>0) {echo "<LI>"._QXZ("users")." ".implode(",", $cb_users)."</LI>\n";}
+	if (count($cb_groups)>0) 
+		{
+		$temp_groups = implode(",", $cb_groups);
+		$temp_groups = preg_replace('/[^-\,\_0-9\p{L}]/u', '', $temp_groups);
+		echo "<LI>"._QXZ("campaigns")." ".$temp_groups."</LI>\n";
+		}
+	if (count($cb_lists)>0) 
+		{
+		$temp_lists = implode(",", $cb_lists);
+		$temp_lists = preg_replace('/[^-\,\_0-9\p{L}]/u', '', $temp_lists);
+		echo "<LI>"._QXZ("lists")." ".$temp_lists."</LI>\n";
+		}
+	if (count($cb_user_groups)>0) 
+		{
+		$temp_groups = implode(",", $cb_user_groups);
+		$temp_groups = preg_replace('/[^-\,\_0-9\p{L}]/u', '', $temp_groups);
+		echo"<LI>". _QXZ("user groups")." ".$temp_groups."</LI>\n";
+		}
+	if (count($cb_users)>0) 
+		{
+		$temp_users = implode(",", $cb_users);
+		$temp_users = preg_replace('/[^-\,\_0-9\p{L}]/u', '', $temp_users);
+		echo "<LI>"._QXZ("users")." ".$temp_users."</LI>\n";
+		}
 	if ($days_uncalled) {echo "<LI>"._QXZ("where leads have been LIVE and uncalled for ")." $days_uncalled "._QXZ("days")."</LI>\n";}
 	echo "</UL><BR>";
 

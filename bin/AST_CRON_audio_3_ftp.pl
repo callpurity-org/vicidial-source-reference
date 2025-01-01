@@ -39,7 +39,7 @@
 # 
 # This program assumes that recordings are saved by Asterisk as .wav
 # 
-# Copyright (C) 2018  Matt Florell <vicidial@gmail.com>    LICENSE: AGPLv2
+# Copyright (C) 2023  Matt Florell <vicidial@gmail.com>    LICENSE: AGPLv2
 #
 # 
 # 80302-1958 - First Build
@@ -59,6 +59,8 @@
 # 160406-2055 - Added YMDdatedir option
 # 180511-2018 - Added --YearYMDdatedir option
 # 180616-2248 - Added --localdatedir option
+# 230131-2321 - Allowed for handling of stereo gateway recordings
+# 231116-0757 - Added --ftp-active option flag for Active (non-Passive) FTP connections
 #
 
 ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime(time);
@@ -85,6 +87,7 @@ $file_limit = 1000;
 $list_limit = 1000;
 $FTPpersistent=0;
 $FTPvalidate=0;
+$FTPpassive=1;
 
 ### begin parsing run-time options ###
 if (length($ARGV[0])>1)
@@ -105,7 +108,6 @@ if (length($ARGV[0])>1)
 		print "  [--test] = test\n";
 		print "  [--transfer-limit=XXX] = number of files to transfer before exiting\n";
 		print "  [--list-limit=XXX] = number of files to list in the directory before moving on\n";
-		print "  [--debugX] = super debug\n";
 		print "  [--GSM] = copy GSM files\n";
 		print "  [--MP3] = copy MPEG-Layer-3 files\n";
 		print "  [--OGG] = copy OGG Vorbis files\n";
@@ -117,7 +119,6 @@ if (length($ARGV[0])>1)
 		print "  [--YearYMDdatedir] = put into Year/YYYYMMDD dated directories\n";
 		print "  [--localdatedir] = create dated directories inside of FTP directory on local server\n";
 		print "  [--run-check] = concurrency check, die if another instance is running\n";
-		print "  [--max-files=x] = maximum number of files to process, defaults to 100000\n";
 		print "  [--ftp-server=XXX] = FTP server\n";
 		print "  [--ftp-port=XXX] = FTP server port\n";
 		print "  [--ftp-login=XXX] = FTP server login account\n";
@@ -125,6 +126,7 @@ if (length($ARGV[0])>1)
 		print "  [--ftp-dir=XXX] = FTP server directory\n";
 		print "  [--ftp-persistent] = Does not log out between every file transmission\n";
 		print "  [--ftp-validate] = Checks for a file size on the file after transmission\n";
+		print "  [--ftp-active] = Use Active (non-Passive) FTP connection\n";
 		print "\n";
 		exit;
 		}
@@ -286,6 +288,12 @@ if (length($ARGV[0])>1)
 			if ($DB > 0) 
 				{print "\n----- FTP VALIDATE: $FTPvalidate -----\n\n";}
 			}
+		if ($args =~ /--ftp-active/i) 
+			{
+			$FTPpassive=0;
+			if ($DB > 0) 
+				{print "\n----- FTP ACTIVE(non-Passive) connection: 1 ($FTPpassive) -----\n\n";}
+			}
 		}
 	}
 else
@@ -432,6 +440,7 @@ foreach(@FILES)
 			$SQLFILE = $FILES[$i];
 			$SQLFILE =~ s/\.gpg//gi;
 			$SQLFILE =~ s/-all\.wav|-all\.gsm|-all\.ogg|-all\.mp3//gi;
+			$SQLFILE =~ s/\.wav|\.gsm|\.ogg|\.mp3//gi;
 
 			$stmtA = "select recording_id,start_time from recording_log where filename='$SQLFILE' order by recording_id desc LIMIT 1;";
 			if($DBX){print STDERR "\n|$stmtA|\n";}
@@ -503,9 +512,25 @@ foreach(@FILES)
 					}
 				else
 					{
+					if ($FTPpassive > 0) 
+						{
+						if($DBX){print STDERR "Connecting to FTP server in passive mode...\n";}
+						$ftp = Net::FTP->new("$VARFTP_host", Port => $VARFTP_port, Debug => $FTPdb);
+						}
+					else
+						{
+						if($DBX){print STDERR "Connecting to FTP server in active mode...\n";}
+						$ftp = Net::FTP->new("$VARFTP_host", Port => $VARFTP_port, Debug => $FTPdb, Passive => 0);
+						}
 					$ftp = Net::FTP->new("$VARFTP_host", Port => $VARFTP_port, Debug => $FTPdb);
 					$ftp->login("$VARFTP_user","$VARFTP_pass");
 					$ftp->cwd("$VARFTP_dir");
+
+					if ($FTPpassive < 1) 
+						{
+						if($DBX){print STDERR "Forcing FTP connection to active mode...\n";}
+						$ftp->passive("0");
+						}
 					}
 				if ($NODATEDIR < 1)
 					{

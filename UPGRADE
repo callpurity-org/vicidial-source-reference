@@ -564,6 +564,309 @@ OTHER CHANGES:
 
 160. Added 'copy_user' function to the Non-Agent API.
 
+161. Added 'add_did' function to the Non-Agent API.
+
+162. Added new SOURCESELECT Custom Field Type, it is a single-selection pull-
+	down menu where there are multiple sets of options available depending 
+	on the value of another field for the lead. Also added the ability to
+	perform basic Math functions within a SCRIPT Custom Field using values
+	from other fields in the equations. For more information on how both of
+	these new features work, see the Field Options help in the admin web
+	screen.
+
+163. Added Phone Defaults system setting, allowing you to set many default
+	values when adding new phones through admin.php. Also added a Copy New
+	Phone admin web function.
+
+164. Redesign of QC module, with new QC scorecards, the ability to do QC by 
+	Campaign/List/In-Group, new reporting and more. See the
+	docs/QC_PROCCES.txt document for more information.
+
+165. Added the BUTTON Field Type option to Custom List Fields. Allows you to add
+	a button to the form that will commit any changes made in the form and 
+	automatically reload the form.
+
+166. Added Two-Factor Authentication(2FA) as an option for the admin web screens
+	This adds a required second step to the admin web screen login process 
+	through a method other than a password, such as: an Email, Phone Call or
+	Text-Message(SMS). This 2FA auth also lasts only a set amount of time
+	(defined in System Settings[number of hours, from 1-9999 hours]), or 
+	until the user logs out. For more information, read the
+	2FA_TWO_FACTOR_AUTHENTICATION.txt document.
+
+167. Added a page to allow Editing existing Lead Loader Templates.
+
+168. Added System Settings for "Agent Hidden Browser Sound" to repeatedly play
+	a selected sound at a set interval to an agent when their Agent Screen 
+	is hidden from view. Can be used to disable web browser javascript 
+	throttling if set to an	audible sound at a 20 second interval. Tested 
+	with the 'click_quiet' sound file at a volume of '25'.
+
+169. Added WAV audio file validation for Audio Store, and display of badly
+	formatted WAV files in the audio chooser in admin.php
+
+170. Added "Leave 3-Way Start Recording" campaign feature that will start a new
+	recording after the agent clicks on the LEAVE 3WAY button and leaves the
+	call. Also includes an "Exception" option to disable/enable only for 
+	specific 3-way call numbers.
+
+171. Added "Populate Lead Comments" In-Group option, allowing configuration of
+	how the 'comments' lead field is filled-in when a new lead is inserted
+	because of an inbound phone call.
+
+172. Added options to add/update/delete custom fields within the 'update_list'
+	function of the Non-Agent API.
+
+173. Added Settings Compare Utility page to Admin Utilities to allow you to 
+	compare the settings from two records in your system and see what
+	settings are different between the two.
+
+174. Added campaign options to add extra lead-field columns to the "Calls In
+	Queue" panel in the agent screen.
+
+175. Added Calls In Queue Count Display campaign options, allowing for two 
+	separate Calls Waiting counters at the top of the agent screen, each
+	with separate configurable labels and in-group/campaign parameters.
+	Also, this can be used with the alt_display.php script.
+
+176. Added new "Music on Hold Suggest" Phones setting for SIP and IAX phones.
+	It will define the Hold music played to a customer when the phone user
+	puts them on hold through the phone.
+
+177. Added compatibility with TILTX STIR/SHAKEN Call Shaper pre-carrier call
+	filtering service. Read the TILTX_SHAKEN_API.txt doc for more info.
+
+178. Added In-Group Drop Seconds Override Container, allowing for overriding of
+	the Drop Seconds setting based upon the day of the week and time of day.
+
+179. Added Inbound Manual Dial Agent Forced Ready features allowing for forcing
+	agents in INBOUND_MAN dial method campaigns to be in the READY state
+	(able to take inbound calls) for a set amount of time before they are 
+	able to click on the DIAL NEXT NUMBER button each time. Also allows for 
+	an override setting based upon the day of the week and time of day.
+
+180. Added CORS(Cross-Origin Resource Sharing) support for the VICIdial agent
+	PHP scripts and select admin PHP scripts. see the CORS_SUPPORT.txt doc
+	for more information.
+
+181. Added Transfer No Dispo campaign setting, allowing for transferred calls
+	to not immediately show the disposition panel on the agent screen.
+
+182. Added User override setting for campaign Manual Dial Filter option.
+
+183. Added display of active Call Time Holidays in the agent screen Scheduled 
+	Callbacks calendar panel.
+
+184. SECURITY NOTE: For agent screen Webform buttons, we have changed the 
+	default behavior to not include user credentials in non-custom URL
+	strings unless you set the new agc/options.php settings to do so:
+	"$user_pass_webform and "$phone_login_webform"
+	See the "agc/options-example.php" file for more information.
+	*This will not affect custom webform query strings that start with "VAR"
+
+185. Added display of the Phone Codes and Postal Codes that are loaded into the
+	system. Linked from the System Settings page.
+
+186. Added 24-Hour Called Count Limit campaign feature, allows you to limit the
+	number of calls to be placed to a phone number or lead in a 24-hour time
+	period. Also allows for state-based override settings. For more 
+	information, read the CALL_COUNT_LIMITS.txt doc.
+
+187. Added CID Group Failover setting for campaigns, to allow for backup CID
+	Group to use if no AREACODE or STATE match found from first CID Group.
+
+188. Added agc/dispo_list_quota.php script to deactivate lists once a limit of
+	the number of leads matching set statuses is reached. See the comments
+	in the code for more details.
+
+189. Changed agc/dispo_send_email.php to only allow attachments in the new 
+	"agc/attachments" web directory.
+
+190. Added Asterisk 16 "PJSIP" compatibility
+
+191. Added 'batch_update_lead' Non-Agent API function
+
+192. Added 'Agent In-Call Tally Seconds Threshold' campaign setting, to better
+	handle dialing volume on campaigns with long agent talk time.
+
+193. Added 'In-Queue No Agents Check' in-group setting, to allow for checking of
+	logged-in or available agents for the in-group while calls are in-queue,
+	and if there are no agents available, sending the customers to the
+	No-Agent-No-Queue Action. With configurable pause code exceptions.
+
+194. Added MIN LENGTH to the Dispo Call URL ALT admin screen, allowing for a
+	minimum call time threshold before a Dispo Call URL will trigger.
+
+195. Added User Location to the Modify User page. Also added Queue Groups Admin
+	pages, allowing you to define multiple campaigns and/or in-groups in a 
+	single Queue Group to be used in some reports.
+
+196. Added Campaign and List options for "Auto Alt-Number Dialing Threshold"
+	allowing you to stop auto-dialing alternate phone numbers for a lead 
+	after a set number of call attempts, and thereafter only dialing the 
+	main phone number for the lead.
+
+197. Added 'update_alt_url' Non-Agent API function
+
+198. Added "Pause Max URL" Campaign feature
+
+199. Added "Allow Web DB Debug" System Settings feature, to allow use of the $DB
+	variable on the web screens for troubleshooting issues. 
+	It is disabled by default.
+
+200. Added List CID Group Override to the List Modification admin screen.
+
+201. Added "Pre-Filter Recent Call" DID feature, to be able to filter out 
+	inbound calls based on the caller phone number and whether it had been 
+	called(or had called in) within the last X number of days.
+
+202. Added the "Inbound DID Detail Report" to the Admin Utilities page.
+
+203. Added Beta support for ConfBridge Asterisk Conferencing engine. See the
+	"/extras/ConfBridge" directory for more information.
+
+204. Added Beta support for VERM(the VICIdial Enhanced Reporting Module),
+	accessible from the "Reports -> Admin Utilities" page.
+
+205. Added User Group "Script Override" option, with per-campaign activation.
+
+206. Added "Webphone Settings" option to Phones, allows for more WebRTC config
+	options to be set through a Settings Container.
+
+207. Added "Agent Call Hangup Route" campaign settings, allowing you to send 
+	calls that an agent is finished with to a Call Menu, In-Group or a 
+	pre-recorded message before hanging up the call.
+
+	NOTE: After upgrading your system, be sure to set each dialer to 
+	"Rebuild conf files" = 'Y' for this feature to work properly.
+
+208. Added instructions and scripts for creating a Gateway Recording server
+	See the GATEWAY_RECORDING_SERVER.txt doc for more info.
+
+209. Added the ability to have multiple "No Agent Call URL" entries for a 
+	single Campaign/In-Group/List, by putting "ALT" in the No Agent Call URL
+	field on the Campaign, In-Group, List modify screen. Just like how it 
+	works with Dispo Call URL currently.
+
+210. Added new User Group “Script Tab Frame Location” allowing the script tab 
+	to extend to the far left side of the screen.
+
+211. Added new campaign setting “Max Logged-In Agents”, allowing you to set a 
+	maximum number of agents that can be logged into this campaign at any 
+	time.
+
+212. Added list option for “Dial Prefix Override”.
+
+213. Added a “color chooser” for the In-Group Color and Screen Colors fields. 
+	Also added color hex code validation to those fields.
+
+214. Added “Invalid Phone Number Replacement” option to the Web Lead Loader, 
+	allowing you to replace an invalid phone_number lead value with either 
+	the alt_phone or address3 value in the same lead.
+
+215. Added optional “Agent Login Kick-all” system setting which hangs up any 
+	channels that were already in the agent session before the agent is 
+	placed into the session.
+
+216. Added “User Codes Admin Pulldown” allowing only User Level 9 users to 
+	modify the User Code field on the User Modify page, and it will change 
+	the User Code field to a pulldown menu.
+
+217. Added "Show Confetti" campaign setting, allowing for confetti to be shown
+	to agents when they disposition a call as a SALE and/or a CALLBACK
+	flagged status.
+
+218. Added "Abandon Check Queue" feature, to catch dropped Call Menu calls that
+	are tagged with a Lead ID. For more information, see the bottom of the
+	INBOUND_CALLBACK_QUEUE.txt document.
+
+219. Added "Asterisk Restart URL" to the Modify Servers page, this can send a 
+	URL request any time Asterisk is auto-restarted on that server.
+
+220. Added Agent API "send_notification" function, allowing you to send 
+	notifications to agents by User, User Group or Campaign.
+
+221. Added "AMD Agent Route Options" flag to allow immediately hangup and dispo
+	of calls with no audio data. This is a campaign feature.
+
+222. Added agent screen latency logging, viewable in the Real-Time Report and
+	the new Agent Latency Report and Latency Gaps Report.
+
+223. Added Demographic Quotas, allowing for setting of quota goals for leads 
+	based upon lead field values for demographic parameters like: gender,
+	age-group, political-party, etc... For more information on this set of
+	features, read the DEMOGRAPHIC_QUOTAS.txt document.
+
+224. Added Inbound Calls Credits, allowing per-User setting of a number of 
+	inbound calls that can be handled, until reset by a manager.
+
+225. Added List Weekday Resets, allowing for automatic list resets scheduled by
+	day-of-the-week on a per-list basis.
+
+226. Added Second and Third Agent Alert Trigger In-Group settings, allowing for
+	a second and/or third audio alert to be played to the agent on repeat 
+	calls.
+
+227. Added VIDPROMPTSPECIAL Call Menu Handle Methods when sending calls to 
+	In-Groups. Allows for list-based In-Group routing based on settings in
+	a Settings Container. Also allows for separate routing of not-found
+	leads.
+
+228. Added Dead Call Stop Recording campaign feature.
+
+229. Manual VM Message Status Updates campaign option.
+
+230. Added Per Call Notes Required campaign option.
+
+231. Added Agent Search In-Group List Restrict options, allowing for Lead 
+	Search restrictions on inbound group calls to a single list ID.
+
+232. Added option to use Two-Factor Authentication with Agent Screen logins
+
+233. Added the "lead_dearchive" Non-Agent API function, to move archived leads 
+	back to the active list table.
+
+234. Added the ability for agents to place 3way calls and require that the 
+	called-party press 1 before the call is bridged to the agent and 
+	customer. For more information, see the AGENT_3WAY_PRESS-1_CALLS.txt 
+	document.
+
+235. Added HCI Screen and Hopper Hold Inserts to allow for required Human 
+	Intervention on phone calls placed out of a campaign. See the 
+	HCI_Human_Call_Indicator_screen.txt document for more info.
+
+236. Added the Daily Phone Number Call Limit System-wide campaign option
+
+237. Added "refresh_panel" Agent API function
+
+238. Added "LAGGED Agent Log Summary Report".
+
+239. Added a Multi-call option to the agent 3-way press-1 calls feature.
+
+240. Added DUPPHONEALT... duplicate_check options within the add_lead 
+	Non-Agent API function. Checks for duplicate phone against both the 
+	phone_number and alt_phone fields.
+
+241. Added State Descriptions Banner campaign and in-group settings, allowing
+	for a custom description and color banner to appear on the agent screen
+	on a per-campaign and per-in-group basis.
+
+242. Added Per-User Per-In-Group daily call limits.
+
+243. Added 'delete_dnc_phone' Non-Agent API function.
+
+244. Added "Script Tab Height Override" campaign setting, to allow for longer
+	Script tab contents.
+
+245. Added "Call Log View Days" campaign setting, to allow restrictions to the
+	number of days an agent can go back to look at their call logs.
+
+246. Added ALT option for "Start Call URL" to allow for multiple URLs to be
+	requested at the agent-start of a call.
+
+247. Added archived-log cold-storage options and scripts.
+	See LOG_ARCHIVING_AND_COLD_STORAGE.txt document for more infomation.
+
 
 
 

@@ -6,7 +6,7 @@
 # QC statuses of QCFAIL, QCCANC and sales are defined by the Sale=Y status
 # flags being set on those statuses.
 #
-# Copyright (C) 2019  Joe Johnson, Matt Florell <vicidial@gmail.com>    LICENSE: AGPLv2
+# Copyright (C) 2024  Joe Johnson, Matt Florell <vicidial@gmail.com>    LICENSE: AGPLv2
 #
 # CHANGES
 #
@@ -34,6 +34,10 @@
 # 180507-2315 - Added new help display
 # 191013-0825 - Fixes for PHP7
 # 200917-1720 - Modified for sale counts to be campaign-specific
+# 210222-1508 - Added option to show all users
+# 220301-2155 - Added allow_web_debug system setting
+# 230407-1039 - Added include_sales_in_TPD_report option
+# 240801-1130 - Code updates for PHP8 compatibility
 #
 
 $startMS = microtime();
@@ -44,6 +48,7 @@ require("functions.php");
 $PHP_AUTH_USER=$_SERVER['PHP_AUTH_USER'];
 $PHP_AUTH_PW=$_SERVER['PHP_AUTH_PW'];
 $PHP_SELF=$_SERVER['PHP_SELF'];
+$PHP_SELF = preg_replace('/\.php.*/i','.php',$PHP_SELF);
 if (isset($_GET["query_date_D"]))			{$query_date_D=$_GET["query_date_D"];}
 	elseif (isset($_POST["query_date_D"]))	{$query_date_D=$_POST["query_date_D"];}
 if (isset($_GET["end_date_D"]))				{$end_date_D=$_GET["end_date_D"];}
@@ -68,7 +73,23 @@ if (isset($_GET["report_display_type"]))			{$report_display_type=$_GET["report_d
 	elseif (isset($_POST["report_display_type"]))	{$report_display_type=$_POST["report_display_type"];}
 if (isset($_GET["search_archived_data"]))			{$search_archived_data=$_GET["search_archived_data"];}
 	elseif (isset($_POST["search_archived_data"]))	{$search_archived_data=$_POST["search_archived_data"];}
+if (isset($_GET["show_all_users"]))				{$show_all_users=$_GET["show_all_users"];}
+	elseif (isset($_POST["show_all_users"]))	{$show_all_users=$_POST["show_all_users"];}
 
+$DB=preg_replace("/[^0-9a-zA-Z]/","",$DB);
+
+$MT[0]='';
+$NOW_DATE = date("Y-m-d");
+$NOW_TIME = date("Y-m-d H:i:s");
+$STARTtime = date("U");
+if (!is_array($group)) {$group = array();}
+if (!is_array($user_group)) {$user_group = array();}
+if (!is_array($call_status)) {$call_status = array();}
+if (!is_array($call_statuses)) {$call_statuses = array();}
+if (!isset($query_date_D)) {$query_date_D=$NOW_DATE;}
+if (!isset($end_date_D)) {$end_date_D=$NOW_DATE;}
+if (!isset($query_date_T)) {$query_date_T="00:00:00";}
+if (!isset($end_date_T)) {$end_date_T="23:59:59";}
 
 $report_name = 'Team Performance Detail';
 $db_source = 'M';
@@ -77,9 +98,9 @@ $JS_onload="onload = function() {\n";
 
 #############################################
 ##### START SYSTEM_SETTINGS LOOKUP #####
-$stmt = "SELECT use_non_latin,outbound_autodial_active,slave_db_server,reports_use_slave_db,enable_languages,language_method,report_default_format FROM system_settings;";
+$stmt = "SELECT use_non_latin,outbound_autodial_active,slave_db_server,reports_use_slave_db,enable_languages,language_method,report_default_format,allow_web_debug FROM system_settings;";
 $rslt=mysql_to_mysqli($stmt, $link);
-if ($DB) {$HTML_text.="$stmt\n";}
+#if ($DB) {$HTML_text.="$stmt\n";}
 $qm_conf_ct = mysqli_num_rows($rslt);
 if ($qm_conf_ct > 0)
 	{
@@ -91,10 +112,43 @@ if ($qm_conf_ct > 0)
 	$SSenable_languages =			$row[4];
 	$SSlanguage_method =			$row[5];
 	$SSreport_default_format =		$row[6];
+	$SSallow_web_debug =			$row[7];
 	}
+if ($SSallow_web_debug < 1) {$DB=0;}
+if (strlen($report_display_type)<2) {$report_display_type = $SSreport_default_format;}
 ##### END SETTINGS LOOKUP #####
 ###########################################
-if (strlen($report_display_type)<2) {$report_display_type = $SSreport_default_format;}
+
+if (file_exists('options.php'))
+	{
+	require('options.php');
+	}
+
+$query_date_D = preg_replace('/[^- \:\_0-9a-zA-Z]/', '', $query_date_D);
+$query_date_T = preg_replace('/[^- \:\_0-9a-zA-Z]/', '', $query_date_T);
+$end_date_D = preg_replace('/[^- \:\_0-9a-zA-Z]/', '', $end_date_D);
+$end_date_T = preg_replace('/[^- \:\_0-9a-zA-Z]/', '', $end_date_T);
+$show_all_users = preg_replace('/[^-_0-9a-zA-Z]/', '', $show_all_users);
+$SUBMIT = preg_replace('/[^-_0-9a-zA-Z]/', '', $SUBMIT);
+$report_display_type = preg_replace('/[^-_0-9a-zA-Z]/', '', $report_display_type);
+$file_download = preg_replace('/[^-_0-9a-zA-Z]/', '', $file_download);
+$search_archived_data = preg_replace('/[^-_0-9a-zA-Z]/', '', $search_archived_data);
+
+# Variables filtered further down in the code
+# $group
+# $user_group
+# $call_status
+
+if ($non_latin < 1)
+	{
+	$PHP_AUTH_USER = preg_replace('/[^-_0-9a-zA-Z]/', '', $PHP_AUTH_USER);
+	$PHP_AUTH_PW = preg_replace('/[^-_0-9a-zA-Z]/', '', $PHP_AUTH_PW);
+	}
+else
+	{
+	$PHP_AUTH_USER = preg_replace('/[^-_0-9\p{L}]/u', '', $PHP_AUTH_USER);
+	$PHP_AUTH_PW = preg_replace('/[^-_0-9\p{L}]/u', '', $PHP_AUTH_PW);
+	}
 
 ### ARCHIVED DATA CHECK CONFIGURATION
 $archives_available="N";
@@ -117,17 +171,6 @@ else
 	$vicidial_agent_log_table="vicidial_agent_log";
 	}
 #############
-
-if ($non_latin < 1)
-	{
-	$PHP_AUTH_USER = preg_replace('/[^-_0-9a-zA-Z]/', '', $PHP_AUTH_USER);
-	$PHP_AUTH_PW = preg_replace('/[^-_0-9a-zA-Z]/', '', $PHP_AUTH_PW);
-	}
-else
-	{
-	$PHP_AUTH_PW = preg_replace("/'|\"|\\\\|;/","",$PHP_AUTH_PW);
-	$PHP_AUTH_USER = preg_replace("/'|\"|\\\\|;/","",$PHP_AUTH_USER);
-	}
 
 $stmt="SELECT selected_language from vicidial_users where user='$PHP_AUTH_USER';";
 if ($DB) {echo "|$stmt|\n";}
@@ -204,9 +247,9 @@ $LOGserver_name = getenv("SERVER_NAME");
 $LOGserver_port = getenv("SERVER_PORT");
 $LOGrequest_uri = getenv("REQUEST_URI");
 $LOGhttp_referer = getenv("HTTP_REFERER");
-$LOGbrowser=preg_replace("/\'|\"|\\\\/","",$LOGbrowser);
-$LOGrequest_uri=preg_replace("/\'|\"|\\\\/","",$LOGrequest_uri);
-$LOGhttp_referer=preg_replace("/\'|\"|\\\\/","",$LOGhttp_referer);
+$LOGbrowser=preg_replace("/<|>|\'|\"|\\\\/","",$LOGbrowser);
+$LOGrequest_uri=preg_replace("/<|>|\'|\"|\\\\/","",$LOGrequest_uri);
+$LOGhttp_referer=preg_replace("/<|>|\'|\"|\\\\/","",$LOGhttp_referer);
 if (preg_match("/443/i",$LOGserver_port)) {$HTTPprotocol = 'https://';}
   else {$HTTPprotocol = 'http://';}
 if (($LOGserver_port == '80') or ($LOGserver_port == '443') ) {$LOGserver_port='';}
@@ -236,7 +279,7 @@ else
 	$webserver_id = mysqli_insert_id($link);
 	}
 
-$stmt="INSERT INTO vicidial_report_log set event_date=NOW(), user='$PHP_AUTH_USER', ip_address='$LOGip', report_name='$report_name', browser='$LOGbrowser', referer='$LOGhttp_referer', notes='$LOGserver_name:$LOGserver_port $LOGscript_name |$group[0], $query_date, $end_date, $shift, $file_download, $report_display_type|', url='$LOGfull_url', webserver='$webserver_id';";
+$stmt="INSERT INTO vicidial_report_log set event_date=NOW(), user='$PHP_AUTH_USER', ip_address='$LOGip', report_name='$report_name', browser='$LOGbrowser', referer='$LOGhttp_referer', notes='$LOGserver_name:$LOGserver_port $LOGscript_name |$query_date, $end_date, $shift, $file_download, $report_display_type|', url='$LOGfull_url', webserver='$webserver_id';";
 if ($DB) {echo "|$stmt|\n";}
 $rslt=mysql_to_mysqli($stmt, $link);
 $report_log_id = mysqli_insert_id($link);
@@ -307,24 +350,13 @@ if ( (!preg_match('/\-\-ALL\-\-/i', $LOGadmin_viewable_call_times)) and (strlen(
 
 ######################################
 
-$MT[0]='';
-$NOW_DATE = date("Y-m-d");
-$NOW_TIME = date("Y-m-d H:i:s");
-$STARTtime = date("U");
-if (!isset($group)) {$group = array();}
-if (!isset($user_group)) {$group = array();}
-if (!isset($call_statuses)) {$call_statuses = array();}
-if (!isset($query_date_D)) {$query_date_D=$NOW_DATE;}
-if (!isset($end_date_D)) {$end_date_D=$NOW_DATE;}
-if (!isset($query_date_T)) {$query_date_T="00:00:00";}
-if (!isset($end_date_T)) {$end_date_T="23:59:59";}
-
 
 $i=0;
 $group_string='|';
 $group_ct = count($group);
 while($i < $group_ct)
 	{
+	$group[$i] = preg_replace('/[^-_0-9\p{L}]/u', '', $group[$i]);
 	$group_string .= "$group[$i]|";
 	$i++;
 	}
@@ -350,6 +382,7 @@ $call_status_string='|';
 $call_status_ct = count($call_status);
 while($i < $call_status_ct)
 	{
+	$call_status[$i] = preg_replace('/[^-_0-9\p{L}]/u', '', $call_status[$i]);
 	$call_status_string .= "$call_status[$i]|";
 	$i++;
 	}
@@ -360,7 +393,7 @@ if (preg_match("/--NONE--/", $call_status_string))
 	$call_status_ct=0;
 	}
 
-$stmt="select distinct status, status_name from vicidial_statuses where sale!='Y' UNION select distinct status, status_name from vicidial_campaign_statuses where sale!='Y' $LOGallowed_campaignsSQL order by status, status_name;";
+$stmt="select distinct status, status_name from vicidial_statuses ".(!$include_sales_in_TPD_report ? "where sale!='Y'" : "")." UNION select distinct status, status_name from vicidial_campaign_statuses ".(!$include_sales_in_TPD_report ? "where sale!='Y'" : "")." $LOGallowed_campaignsSQL order by status, status_name;";
 $rslt=mysql_to_mysqli($stmt, $link);
 if ($DB) {$HTML_text.="$stmt\n";}
 $call_statuses_to_print = mysqli_num_rows($rslt);
@@ -378,6 +411,7 @@ while ($i < $call_statuses_to_print)
 #######################################
 for ($i=0; $i<count($user_group); $i++) 
 	{
+	$user_group[$i] = preg_replace('/[^-_0-9\p{L}]/u', '', $user_group[$i]);
 	if (preg_match('/\-\-ALL\-\-/', $user_group[$i])) {$all_user_groups=1;}
 	}
 
@@ -400,6 +434,7 @@ $group_string='|';
 $group_ct = count($group);
 while($i < $group_ct)
 	{
+	$group[$i] = preg_replace('/[^-_0-9\p{L}]/u', '', $group[$i]);
 	if ( (preg_match("/ $group[$i] /",$regexLOGallowed_campaigns)) or (preg_match("/-ALL/",$LOGallowed_campaigns)) )
 		{
 		$group_string .= "$group[$i]|";
@@ -548,13 +583,6 @@ $HTML_text.="</script>\n";
 
 $HTML_text.=" &nbsp; <INPUT TYPE=TEXT NAME=end_date_T SIZE=9 MAXLENGTH=8 VALUE=\"$end_date_T\">";
 
-
-if ($archives_available=="Y") 
-	{
-	$HTML_text.="<BR><BR><input type='checkbox' name='search_archived_data' value='checked' $search_archived_data>"._QXZ("Search archived data")."\n";
-	}
-
-
 $HTML_text.="</TD><TD VALIGN=TOP> "._QXZ("Campaigns").":<BR>";
 $HTML_text.="<SELECT SIZE=5 NAME=group[] multiple>\n";
 if  (preg_match('/\-\-ALL\-\-/',$group_string))
@@ -614,11 +642,18 @@ $HTML_text.=_QXZ("Display as").":<BR>";
 $HTML_text.="<select name='report_display_type'>";
 if ($report_display_type) {$HTML_text.="<option value='$report_display_type' selected>"._QXZ("$report_display_type")."</option>";}
 $HTML_text.="<option value='TEXT'>"._QXZ("TEXT")."</option><option value='HTML'>"._QXZ("HTML")."</option></select>\n<BR><BR>";
-$HTML_text.="<INPUT TYPE=SUBMIT NAME=SUBMIT VALUE='"._QXZ("SUBMIT")."'>\n";
-$HTML_text.="</TD><TD VALIGN=TOP> &nbsp; &nbsp; &nbsp; &nbsp; ";
+if ($archives_available=="Y") 
+	{
+	$HTML_text.="<input type='checkbox' name='search_archived_data' value='checked' $search_archived_data>"._QXZ("Search archived data")."<BR>\n";
+	}
+$HTML_text.="<input type='checkbox' value='checked' name='show_all_users' id='show_all_users' $show_all_users>Show all users<BR>";
+$HTML_text.="<font size=1>(includes inactive agents/agents with no calls)";
+$HTML_text.="</TD><TD VALIGN=TOP align='center'>";
 
-$HTML_text.="<FONT FACE=\"ARIAL,HELVETICA\" COLOR=BLACK SIZE=2> &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;\n";
-$HTML_text.="<a href=\"$PHP_SELF?DB=$DB&query_date=$query_date&end_date=$end_date&query_date_D=$query_date_D&query_date_T=$query_date_T&end_date_D=$end_date_D&end_date_T=$end_date_T$groupQS$user_groupQS$call_statusQS&file_download=1&search_archived_data=$search_archived_data&SUBMIT=$SUBMIT\">"._QXZ("DOWNLOAD")."</a> |";
+$HTML_text.="<BR>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp;<INPUT TYPE=SUBMIT NAME=SUBMIT VALUE='"._QXZ("SUBMIT")."'><BR><BR>\n";
+
+$HTML_text.="<FONT FACE=\"ARIAL,HELVETICA\" COLOR=BLACK SIZE=2>\n";
+$HTML_text.="&nbsp; &nbsp; &nbsp; &nbsp; &nbsp;<a href=\"$PHP_SELF?DB=$DB&query_date=$query_date&end_date=$end_date&query_date_D=$query_date_D&query_date_T=$query_date_T&end_date_D=$end_date_D&end_date_T=$end_date_T$groupQS$user_groupQS$call_statusQS&file_download=1&search_archived_data=$search_archived_data&show_all_users=$show_all_users&SUBMIT=$SUBMIT\">"._QXZ("DOWNLOAD")."</a> |";
 $HTML_text.=" <a href=\"./admin.php?ADD=999999\">"._QXZ("REPORTS")."</a> </FONT>\n";
 $HTML_text.="</FONT>\n";
 $HTML_text.="</TD></TR></TABLE>";
@@ -743,7 +778,14 @@ if ( ($SUBMIT=="SUBMIT") or ($SUBMIT==_QXZ("SUBMIT")) )
 		$GRAPH_text.="<B>"._QXZ("TEAM").": $user_group[$i] - $group_name</B>";
 
 		#### USER COUNTS
-		$user_stmt="select distinct vicidial_users.full_name, vicidial_users.user from vicidial_users, ".$vicidial_agent_log_table." where vicidial_users.user_group='$user_group[$i]' and vicidial_users.user=".$vicidial_agent_log_table.".user and ".$vicidial_agent_log_table.".user_group='$user_group[$i]'  and ".$vicidial_agent_log_table.".event_time>='$query_date' and ".$vicidial_agent_log_table.".event_time<='$end_date' and ".$vicidial_agent_log_table.".campaign_id in ($group_SQL_str) order by full_name, user";
+		if ($show_all_users)
+			{
+			$user_stmt="select full_name, user from vicidial_users where user_group='$user_group[$i]' order by full_name, user";
+			}
+		else 
+			{
+			$user_stmt="select distinct vicidial_users.full_name, vicidial_users.user from vicidial_users, ".$vicidial_agent_log_table." where vicidial_users.user_group='$user_group[$i]' and vicidial_users.user=".$vicidial_agent_log_table.".user and ".$vicidial_agent_log_table.".user_group='$user_group[$i]'  and ".$vicidial_agent_log_table.".event_time>='$query_date' and ".$vicidial_agent_log_table.".event_time<='$end_date' and ".$vicidial_agent_log_table.".campaign_id in ($group_SQL_str) order by full_name, user";
+			}
 		if ($DB) {$ASCII_text.="$user_stmt\n";}
 		$user_rslt=mysql_to_mysqli($user_stmt, $link);
 		if (mysqli_num_rows($user_rslt)>0) 
@@ -781,6 +823,12 @@ if ( ($SUBMIT=="SUBMIT") or ($SUBMIT==_QXZ("SUBMIT")) )
 			$CSV_text.="\"\",\""._QXZ("Agent Name")."\",\""._QXZ("Agent ID")."\",\""._QXZ("Calls")."\",\""._QXZ("Leads")."\",\""._QXZ("Contacts")."\",\""._QXZ("Contact Ratio")."\",\""._QXZ("Nonpause Time")."\",\""._QXZ("System Time")."\",\""._QXZ("Talk Time")."\",\""._QXZ("Sales")."\",\""._QXZ("Sales per Working Hour")."\",\""._QXZ("Sales to Leads Ratio")."\",\""._QXZ("Sales to Contacts Ratio")."\",\""._QXZ("Sales Per Hour")."\",\""._QXZ("Incomplete Sales")."\",\""._QXZ("Cancelled Sales")."\",\""._QXZ("Callbacks")."\",\""._QXZ("First Call Resolution")."\",\""._QXZ("Average Sale Time")."\",\""._QXZ("Average Contact Time")."\"$CSVstatusheader\n";
 			while ($user_row=mysqli_fetch_array($user_rslt)) 
 				{
+				# For each user
+				$user=$user_row["user"];
+				$sale_array[$user]+=0;  # For agents with no sales logged
+				$incomplete_array[$user]+=0;  # For agents with no QCFAIL logged
+				$cancel_array[$user]+=0;  # For agents with no QCCANC logged
+
 				$j++;
 				$contacts=0;
 				$callbacks=0;
@@ -790,11 +838,6 @@ if ( ($SUBMIT=="SUBMIT") or ($SUBMIT==_QXZ("SUBMIT")) )
 				$system_time=0;
 				$talk_time=0;
 				$nonpause_time=0;
-				# For each user
-				$user=$user_row["user"];
-				$sale_array[$user]+=0;  # For agents with no sales logged
-				$incomplete_array[$user]+=0;  # For agents with no QCFAIL logged
-				$cancel_array[$user]+=0;  # For agents with no QCCANC logged
 
 				# Leads 
 				$lead_stmt="select count(distinct lead_id) from ".$vicidial_agent_log_table." where lead_id is not null and event_time>='$query_date' and event_time<='$end_date' $group_SQL and user='$user' and user_group='$user_group[$i]'";
@@ -936,7 +979,7 @@ if ( ($SUBMIT=="SUBMIT") or ($SUBMIT==_QXZ("SUBMIT")) )
 			$group_talk_hours=MathZDC($group_talk_time, 3600);
 
 			$GROUP_text.="| ".sprintf("%40s", "$group_name");
-			$GROUP_text.=" | ".sprintf("%10s", "$user_group[$i]");
+			$GROUP_text.=" | ".sprintf("%20s", "$user_group[$i]");
 			$total_graph_stats[$i][0]="$user_group[$i] - $group_name";
 
 			$ASCII_text.="+------------------------------------------+------------+-------+-------+----------+---------------+---------------+-------------+-----------+-------+------------------------+----------------------+-------------------------+----------------+------------------+-----------------+-----------+-----------------------+-------------------+----------------------+$HTMLborderheader\n";
@@ -1135,26 +1178,27 @@ if ( ($SUBMIT=="SUBMIT") or ($SUBMIT==_QXZ("SUBMIT")) )
 			} 
 		else 
 			{
-			$ASCII_text.="    **** "._QXZ("NO AGENTS FOUND UNDER THESE REPORT PARAMETERS")." ****\n\n";
-			$CSV_text.="\"\",\"**** "._QXZ("NO AGENTS FOUND UNDER THESE REPORT PARAMETERS")." ****\"\n\n";
-			$GRAPH_text.="    **** "._QXZ("NO AGENTS FOUND UNDER THESE REPORT PARAMETERS")." ****<BR/><BR/>\n\n";
+			if ($show_all_users) {$msg="NO AGENTS CURRENTLY IN THIS USER GROUP";} else {$msg="NO AGENTS FOUND UNDER THESE REPORT PARAMETERS";}
+			$ASCII_text.="    **** "._QXZ("$msg")." ****\n\n";
+			$CSV_text.="\"\",\"**** "._QXZ("$msg")." ****\"\n\n";
+			$GRAPH_text.="    **** "._QXZ("$msg")." ****<BR/><BR/>\n\n";
 			$total_graph_stats[$i][0]="$user_group[$i] - $group_name";
 			}
 		}
 
 	$ASCII_text.="--- <B>CALL CENTER TOTAL</B>\n";
-	$ASCII_text.="+------------------------------------------+------------+-------+-------+----------+---------------+---------------+-------------+-----------+-------+------------------------+----------------------+-------------------------+----------------+------------------+-----------------+-----------+-----------------------+-------------------+----------------------+$HTMLborderheader\n";
-	$ASCII_text.="| "._QXZ("Team Name",40)." | "._QXZ("Agent ID",10)." | "._QXZ("Calls",5)." | "._QXZ("Leads",5)." | "._QXZ("Contacts",8)." | "._QXZ("Contact Ratio",13)." | "._QXZ("Nonpause Time",13)." | "._QXZ("System Time",11)." | "._QXZ("Talk Time",9)." | "._QXZ("Sales",5)." | "._QXZ("Sales per Working Hour",22)." | "._QXZ("Sales to Leads Ratio",20)." | "._QXZ("Sales to Contacts Ratio",23)." | "._QXZ("Sales Per Hour",14)." | "._QXZ("Incomplete Sales",16)." | "._QXZ("Cancelled Sales",15)." | "._QXZ("Callbacks",9)." | "._QXZ("First Call Resolution",21)." | "._QXZ("Average Sale Time",17)." | "._QXZ("Average Contact Time",20)." |$HTMLstatusheader\n";
-	$ASCII_text.="+------------------------------------------+------------+-------+-------+----------+---------------+---------------+-------------+-----------+-------+------------------------+----------------------+-------------------------+----------------+------------------+-----------------+-----------+-----------------------+-------------------+----------------------+$HTMLborderheader\n";
+	$ASCII_text.="+------------------------------------------+----------------------+-------+-------+----------+---------------+---------------+-------------+-----------+-------+------------------------+----------------------+-------------------------+----------------+------------------+-----------------+-----------+-----------------------+-------------------+----------------------+$HTMLborderheader\n";
+	$ASCII_text.="| "._QXZ("Team Name",40)." | "._QXZ("Team ID",20)." | "._QXZ("Calls",5)." | "._QXZ("Leads",5)." | "._QXZ("Contacts",8)." | "._QXZ("Contact Ratio",13)." | "._QXZ("Nonpause Time",13)." | "._QXZ("System Time",11)." | "._QXZ("Talk Time",9)." | "._QXZ("Sales",5)." | "._QXZ("Sales per Working Hour",22)." | "._QXZ("Sales to Leads Ratio",20)." | "._QXZ("Sales to Contacts Ratio",23)." | "._QXZ("Sales Per Hour",14)." | "._QXZ("Incomplete Sales",16)." | "._QXZ("Cancelled Sales",15)." | "._QXZ("Callbacks",9)." | "._QXZ("First Call Resolution",21)." | "._QXZ("Average Sale Time",17)." | "._QXZ("Average Contact Time",20)." |$HTMLstatusheader\n";
+	$ASCII_text.="+------------------------------------------+----------------------+-------+-------+----------+---------------+---------------+-------------+-----------+-------+------------------------+----------------------+-------------------------+----------------+------------------+-----------------+-----------+-----------------------+-------------------+----------------------+$HTMLborderheader\n";
 	$ASCII_text.=$GROUP_text;
-	$ASCII_text.="+------------------------------------------+------------+-------+-------+----------+---------------+---------------+-------------+-----------+-------+------------------------+----------------------+-------------------------+----------------+------------------+-----------------+-----------+-----------------------+-------------------+----------------------+$HTMLborderheader\n";
+	$ASCII_text.="+------------------------------------------+----------------------+-------+-------+----------+---------------+---------------+-------------+-----------+-------+------------------------+----------------------+-------------------------+----------------+------------------+-----------------+-----------+-----------------------+-------------------+----------------------+$HTMLborderheader\n";
 
 		$total_average_sale_time=sec_convert(round(MathZDC($total_sales_talk_time,$total_sales)), 'H');
 		$total_average_contact_time=sec_convert(round(MathZDC($total_contact_talk_time,$total_contacts)), 'H');
 	$total_talk_hours=MathZDC($total_talk_time, 3600);
 
 	$ASCII_text.="| ".sprintf("%40s", "");
-	$ASCII_text.=" | ".sprintf("%10s", _QXZ("TOTALS:"));
+	$ASCII_text.=" | ".sprintf("%20s", _QXZ("TOTALS:"));
 	$ASCII_text.=" | ".sprintf("%5s", $total_calls);	
 	$ASCII_text.=" | ".sprintf("%5s", $total_leads);
 	$ASCII_text.=" | ".sprintf("%8s", $total_contacts);
@@ -1188,7 +1232,7 @@ if ( ($SUBMIT=="SUBMIT") or ($SUBMIT==_QXZ("SUBMIT")) )
 	$ASCII_text.="\n";
 
 
-	$ASCII_text.="+------------------------------------------+------------+-------+-------+----------+---------------+---------------+-------------+-----------+-------+------------------------+----------------------+-------------------------+----------------+------------------+-----------------+-----------+-----------------------+-------------------+----------------------+$HTMLborderheader\n";
+	$ASCII_text.="+------------------------------------------+----------------------+-------+-------+----------+---------------+---------------+-------------+-----------+-------+------------------------+----------------------+-------------------------+----------------+------------------+-----------------+-----------+-----------------------+-------------------+----------------------+$HTMLborderheader\n";
 	$ASCII_text.="</FONT></PRE>";
 	$ASCII_text.="</BODY>\n";
 	$ASCII_text.="</HTML>\n";
